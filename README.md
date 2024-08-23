@@ -1,215 +1,4 @@
-# Issue H-1: Topic Activation Failure Due to Unhandled Error 
-
-Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/1 
-
-## Found by 
-defsec
-## Summary
-
-The `activateTopicIfWeightAtLeastGlobalMin` function returns an error if any of the internal operations encounter an error. However, the returned error is not being properly handled or propagated in the `FundTopic` method.
-
-
-## Vulnerability Detail
-
-In the provided code snippet, the `activateTopicIfWeightAtLeastGlobalMin` function is called within the `FundTopic` method of the `msgServer` to potentially activate a topic if its weight meets the global minimum threshold. However, there is a risk that the topic may not be activated even if it meets the necessary criteria due to an unhandled error.
-
-The specific issue lies in the following line of code:
-```go
-err = activateTopicIfWeightAtLeastGlobalMin(ctx, ms, msg.TopicId, msg.Amount)
-```
-
-## Impact
-
-If an error occurs during the topic activation process, it will be silently ignored, and the topic may remain inactive even if it should have been activated based on the weight criteria. 
-
-## Code Snippet
-
-[msg_server_demand.go#L51](https://github.com/allora-network/allora-chain/blob/3a97afe7af027c96749fac7c4327ae85359a61c8/x/emissions/keeper/msgserver/msg_server_demand.go#L51)
-
-```go
-func (ms msgServer) FundTopic(ctx context.Context, msg *types.MsgFundTopic) (*types.MsgFundTopicResponse, error) {
-	// Check the topic is valid
-	topicExists, err := ms.k.TopicExists(ctx, msg.TopicId)
-	if err != nil {
-		return nil, err
-	}
-	if !topicExists {
-		return nil, types.ErrInvalidTopicId
-	}
-
-	// Check that the request isn't spam by checking that the amount of funds it bids is greater than a global minimum demand per request
-	params, err := ms.k.GetParams(ctx)
-	if err != nil {
-		return nil, err
-	}
-	amountDec, err := alloraMath.NewDecFromSdkInt(msg.Amount)
-	if err != nil {
-		return nil, err
-	}
-	if amountDec.Lte(params.Epsilon) {
-		return nil, types.ErrFundAmountTooLow
-	}
-	// Check sender has funds to pay for the inference request
-	// bank module does this for us in module SendCoins / subUnlockedCoins so we don't need to check
-	// Send funds
-	coins := sdk.NewCoins(sdk.NewCoin(appParams.DefaultBondDenom, msg.Amount))
-	err = ms.k.SendCoinsFromAccountToModule(ctx, msg.Sender, minttypes.EcosystemModuleName, coins)
-	if err != nil {
-		return nil, err
-	}
-
-	// Account for the revenue the topic has generated
-	err = ms.k.AddTopicFeeRevenue(ctx, msg.TopicId, msg.Amount)
-	if err != nil {
-		return nil, err
-	}
-
-	// Activate topic if it exhibits minimum weight
-	err = activateTopicIfWeightAtLeastGlobalMin(ctx, ms, msg.TopicId, msg.Amount)
-	return &types.MsgFundTopicResponse{}, err
-}
-```
-
-
-## Tool used
-
-Manual Review
-
-## Recommendation
-
-Modify the `FundTopic` method to properly handle the error returned by `activateTopicIfWeightAtLeastGlobalMin`.
-   - If an error occurs during topic activation, it should be logged, and an appropriate error response should be returned to the caller.
-
-   ```go
-   err = activateTopicIfWeightAtLeastGlobalMin(ctx, ms, msg.TopicId, msg.Amount)
-   if err != nil {
-       // Log the error for visibility and debugging purposes
-       ms.k.Logger(ctx).Error("Failed to activate topic", "error", err)
-       return nil, err
-   }
-   ```
-
-
-
-## Discussion
-
-**sherlock-admin2**
-
-1 comment(s) were left on this issue during the judging contest.
-
-**0xmystery** commented:
-> Error is silently handled
-
-
-
-# Issue H-2: anybody can halt chain in `nsertBulkWorkerPayload` 
-
-Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/11 
-
-## Found by 
-volodya
-## Summary
-anybody can halt chain in `nsertBulkWorkerPayload` by providing `bundle.InferenceForecastsBundle.Inference = nil`
-## Vulnerability Detail
-Anybody can call `InsertBulkWorkerPayload`
-
-```go
-func (ms msgServer) InsertBulkWorkerPayload(ctx context.Context, msg *types.MsgInsertBulkWorkerPayload) (*types.MsgInsertBulkWorkerPayloadResponse, error) {
-...
-	acceptedInferers, err := verifyAndInsertInferencesFromTopInferers(
-		ctx,
-		ms,
-		msg.TopicId,
-		*msg.Nonce,
-		msg.WorkerDataBundles,
-		moduleParams.MaxTopInferersToReward,
-	)
-```
-[msgserver/msg_server_worker_payload.go#L219](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_worker_payload.go#L219)
-bundle.InferenceForecastsBundle.Inference can be assigned to nil by sender, so there will an error when trying to access its property.
-There is no validation for it
-
-```go
-func verifyAndInsertInferencesFromTopInferers(
-	ctx context.Context,
-	ms msgServer,
-	topicId uint64,
-	nonce types.Nonce,
-	// inferences []*types.Inference,
-	workerDataBundles []*types.WorkerDataBundle,
-	maxTopWorkersToReward uint64,
-) (map[string]bool, error) {
-...
-		if inference.TopicId != topicId ||
-			inference.BlockHeight != nonce.BlockHeight {
-			errors[workerDataBundle.Worker] = "Worker data bundle does not match topic or nonce"
-			continue
-		}
-```
-
-Iniside validation it will be passed
-```go
-func (bundle *WorkerDataBundle) Validate() error {
-...
-
-	// Validate the inference and forecast of the bundle
-	if bundle.InferenceForecastsBundle.Inference == nil && bundle.InferenceForecastsBundle.Forecast == nil {
-		return errors.Wrap(sdkerrors.ErrInvalidRequest, "inference and forecast cannot both be nil")
-	}
-	if bundle.InferenceForecastsBundle.Inference != nil {
-		if err := bundle.InferenceForecastsBundle.Inference.Validate(); err != nil {
-			return err
-		}
-	}
-	if bundle.InferenceForecastsBundle.Forecast != nil {
-		if err := bundle.InferenceForecastsBundle.Forecast.Validate(); err != nil {
-			return err
-		}
-	}
-
-```
-## Impact
-
-## Code Snippet
-
-## Tool used
-
-Manual Review
-
-## Recommendation
-Implement the same validation like inside `verifyAndInsertForecastsFromTopForecasters` function
-```diff
-		inference := workerDataBundle.InferenceForecastsBundle.Inference
-
-		// Check if the topic and nonce are correct
-+		if  inference == nil ||
-                        inference.TopicId != topicId ||
-			inference.BlockHeight != nonce.BlockHeight {
-			errors[workerDataBundle.Worker] = "Worker data bundle does not match topic or nonce"
-			continue
-		}
-```
-
-
-
-## Discussion
-
-**sherlock-admin3**
-
-1 comment(s) were left on this issue during the judging contest.
-
-**0xmystery** commented:
-> InsertBulkWorkerPayload could halt chain
-
-
-
-**sherlock-admin2**
-
-The protocol team fixed this issue in the following PRs/commits:
-https://github.com/allora-network/allora-chain/pull/446
-
-
-# Issue H-3: forecast-implied inferences can be set to any value due to ForecastElements is not filtered by duplicate. 
+# Issue H-1: forecast-implied inferences can be set to any value due to ForecastElements is not filtered by duplicate. 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/12 
 
@@ -265,7 +54,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/449
 
 
-# Issue H-4: Not appropriate Inferences will be used when calculating the forecast 
+# Issue H-2: Not appropriate Inferences will be used when calculating the forecast 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/14 
 
@@ -353,7 +142,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/449
 
 
-# Issue H-5: Adversary can arbitrarily trigger a chain halt by sending `MsgRemove{Delegate}Stake` with negative amount 
+# Issue H-3: Adversary can arbitrarily trigger a chain halt by sending `MsgRemove{Delegate}Stake` with negative amount 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/21 
 
@@ -450,7 +239,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/441
 
 
-# Issue H-6: SetDelegateStakePlacement error is not handled in RewardDelegateStake 
+# Issue H-4: SetDelegateStakePlacement error is not handled in RewardDelegateStake 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/30 
 
@@ -535,55 +324,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/463
 
 
-# Issue H-7: Potential for Uncontrolled Resource Consumption in `topics_handler.go` 
-
-Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/32 
-
-## Found by 
-0xsi
-## Summary
-There is no ressource consumption check in `requestTopicWorkers` and `requestTopicReputers` which can lead to dangerous scenarios.
-
-## Vulnerability Detail
-The use of goroutines in `requestTopicWorkers` and `requestTopicReputers` without proper limits can lead to uncontrolled resource consumption. If the number of topics or nonces is large, it can spawn a large number of goroutines, leading to potential resource exhaustion.
-
-
-## Impact
-Uncontrolled spawning of goroutines can lead to excessive resource consumption, causing performance degradation, potential crashes, or denial of service.
-
-
-## Code Snippet
-https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/app/topics_handler.go#L74-L78
-
-https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/app/topics_handler.go#L101-L127
-
-## Tool used
-
-Manual Review
-
-## Recommendation
-Implement a mechanism to limit the number of concurrent goroutines. Use worker pools or similar constructs to control resource usage and prevent exhaustion.
-
-
-
-## Discussion
-
-**sherlock-admin4**
-
-1 comment(s) were left on this issue during the judging contest.
-
-**0xmystery** commented:
-> Resource consumption is not controlled
-
-
-
-**sherlock-admin2**
-
-The protocol team fixed this issue in the following PRs/commits:
-https://github.com/allora-network/allora-chain/pull/458
-
-
-# Issue H-8: Non-deterministic Ranges in Inference Synthesis Causing Inconsistent State Across Nodes 
+# Issue H-5: Non-deterministic Ranges in Inference Synthesis Causing Inconsistent State Across Nodes 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/38 
 
@@ -671,105 +412,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/408
 
 
-# Issue H-9: The chain will not be in the correct state when upgraded via a hard fork. 
-
-Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/42 
-
-## Found by 
-volodya
-## Summary
-The chain will not be in the correct state when upgraded via a hard fork.
-## Vulnerability Detail
-According to [cosmos SDK](https://docs.cosmos.network/main/build/building-modules/genesis#exportgenesis)
->The ExportGenesis method is executed whenever an export of the state is made. It takes the latest known version of the subset of the state managed by the module and creates a new GenesisState out of it. This is mainly used when the chain needs to be upgraded via a hard fork.
-
-There should be whole state imported inside `ExportGenesis` not only moduleParams, everything from `InitGenesis` and any other state that is being mutated inside emissions module, just like its done for [mint module](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/mint/keeper/genesis.go#L36) otherwise fork would unsucessfull
-```go
-func (k *Keeper) InitGenesis(ctx context.Context, data *types.GenesisState) error {
-	// ensure the module account exists
-	stakingModuleAccount := k.authKeeper.GetModuleAccount(ctx, types.AlloraStakingAccountName)
-	k.authKeeper.SetModuleAccount(ctx, stakingModuleAccount)
-	alloraRewardsModuleAccount := k.authKeeper.GetModuleAccount(ctx, types.AlloraRewardsAccountName)
-	k.authKeeper.SetModuleAccount(ctx, alloraRewardsModuleAccount)
-	alloraPendingRewardsModuleAccount := k.authKeeper.GetModuleAccount(ctx, types.AlloraPendingRewardForDelegatorAccountName)
-	k.authKeeper.SetModuleAccount(ctx, alloraPendingRewardsModuleAccount)
-	if err := k.SetParams(ctx, data.Params); err != nil {
-		return err
-	}
-	if err := k.SetTotalStake(ctx, cosmosMath.ZeroInt()); err != nil {
-		return err
-	}
-	// reserve topic ID 0 for future use
-	if _, err := k.IncrementTopicId(ctx); err != nil {
-		return err
-	}
-
-	// add core team to the whitelists
-	if err := k.addCoreTeamToWhitelists(ctx, data.CoreTeamAddresses); err != nil {
-		return err
-	}
-
-	// For mint module inflation rate calculation set the initial
-	// "previous percentage of rewards that went to staked reputers" to 30%
-	if err := k.SetPreviousPercentageRewardToStakedReputers(ctx, alloraMath.MustNewDecFromString("0.3")); err != nil {
-		return err
-	}
-
-	return nil
-}
-// ExportGenesis exports the module state to a genesis state.
-func (k *Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) {
-	moduleParams, err := k.GetParams(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.GenesisState{
-		Params: moduleParams,
-	}, nil
-}
-```
-[emissions/keeper/genesis.go#L46](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/genesis.go#L46)
-## Impact
-
-## Code Snippet
-
-## Tool used
-
-Manual Review
-
-## Recommendation
-Export whole state inside `ExportGenesis`
-```diff
-func (k *Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) {
-	moduleParams, err := k.GetParams(ctx)
-+	totalStake, err := k.GetTotalStake(ctx)
-+	previousPercentageRewardToStakedReputers, err := k.GetPreviousPercentageRewardToStakedReputers(ctx)
-	...
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.GenesisState{
-+		Params:     moduleParams,
-+		totalStake: totalStake,
-+		previousPercentageRewardToStakedReputers: previousPercentageRewardToStakedReputers,
-		...
-	}, nil
-}
-```
-
-
-
-## Discussion
-
-**sherlock-admin2**
-
-The protocol team fixed this issue in the following PRs/commits:
-https://github.com/allora-network/allora-chain/pull/443
-
-
-# Issue H-10: Missing highestVotingPower Update in argmaxBlockByStake Resulting in Incorrect Block Selection 
+# Issue H-6: Missing highestVotingPower Update in argmaxBlockByStake Resulting in Incorrect Block Selection 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/44 
 
@@ -871,7 +514,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-inference-base/pull/141
 
 
-# Issue H-11: RemoveStakes and RemoveDelegateStakes silently handle errors in EndBlocker 
+# Issue H-7: RemoveStakes and RemoveDelegateStakes silently handle errors in EndBlocker 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/55 
 
@@ -1380,7 +1023,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/465
 
 
-# Issue H-12: Attacker can slow down / halt the chain by queuing multiple stake removals or delegate stake removals 
+# Issue H-8: Attacker can slow down / halt the chain by queuing multiple stake removals or delegate stake removals 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/56 
 
@@ -1477,214 +1120,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/469
 
 
-# Issue H-13: Pagination method fails to return complete pages for non-consecutive active topic IDs 
-
-Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/60 
-
-## Found by 
-Kow, defsec, imsrybr0
-## Summary
-
-The current implementation of `GetIdsOfActiveTopics` does not correctly handle cases where active topic IDs are non-consecutive, potentially returning incomplete pages of results.
-
-## Vulnerability Detail
-
-The `GetIdsOfActiveTopics` function uses a range-based iteration approach that assumes topic IDs are consecutive. When there are gaps in the active topic ID sequence, this method may return fewer results than requested, even when more active topics exist.
-
-For example, if topic IDs 1 and 3 are active, but 2 is not, a request for 2 items might only return ID 1, missing ID 3.
-
-Example case :
-
-
-```go
-func TestGetIdsOfActiveTopics(t *testing.T) {
-    // Setup a mock keeper and context
-    keeper, ctx := setupTestKeeper(t)
-
-    // Set up active topics with non-consecutive IDs
-    activeTopics := []TopicId{1, 3, 5, 7, 10}
-    for _, topicId := range activeTopics {
-        err := keeper.activeTopics.Set(ctx, topicId)
-        require.NoError(t, err)
-    }
-
-    testCases := []struct {
-        name           string
-        pagination     *types.SimpleCursorPaginationRequest
-        expectedTopics []TopicId
-        expectedNext   bool
-    }{
-        {
-            name:           "No pagination",
-            pagination:     nil,
-            expectedTopics: []TopicId{1, 3, 5, 7, 10},
-            expectedNext:   false,
-        },
-        {
-            name:           "Limit 2, no cursor",
-            pagination:     &types.SimpleCursorPaginationRequest{Limit: 2},
-            expectedTopics: []TopicId{1, 3},
-            expectedNext:   true,
-        },
-        {
-            name:           "Limit 3, cursor after 3",
-            pagination:     &types.SimpleCursorPaginationRequest{Limit: 3, Key: makeKey(3)},
-            expectedTopics: []TopicId{5, 7, 10},
-            expectedNext:   false,
-        },
-        {
-            name:           "Limit 2, cursor after 7",
-            pagination:     &types.SimpleCursorPaginationRequest{Limit: 2, Key: makeKey(7)},
-            expectedTopics: []TopicId{10},
-            expectedNext:   false,
-        },
-    }
-
-    for _, tc := range testCases {
-        t.Run(tc.name, func(t *testing.T) {
-            topics, res, err := keeper.GetIdsOfActiveTopics(ctx, tc.pagination)
-            require.NoError(t, err)
-            require.Equal(t, tc.expectedTopics, topics)
-            if tc.expectedNext {
-                require.NotNil(t, res.NextKey)
-            } else {
-                require.Nil(t, res.NextKey)
-            }
-        })
-    }
-}
-
-func makeKey(id uint64) []byte {
-    key := make([]byte, 8)
-    binary.BigEndian.PutUint64(key, id)
-    return key
-}
-
-func setupTestKeeper(t *testing.T) (*Keeper, context.Context) {
-    // Create a mock keeper and context
-    // This is a simplified setup and may need to be adjusted based on your actual Keeper structure
-    keeper := &Keeper{
-        activeTopics: collections.NewMap[TopicId, struct{}](nil, "active_topics"),
-    }
-    ctx := context.Background()
-    return keeper, ctx
-}
-```
-
-## Impact
-
-This issue can lead to:
-1. Incomplete data retrieval for clients requesting active topics.
-2. Inefficient pagination, requiring more requests than necessary to retrieve all active topics.
-3. Potential inconsistencies in application logic that relies on complete pages of active topics.
-
-## Code Snippet
-
-[keeper.go#L1605](https://github.com/allora-network/allora-chain/blob/3a97afe7af027c96749fac7c4327ae85359a61c8/x/emissions/keeper/keeper.go#L1605)
-
-```go
-func (k Keeper) GetIdsOfActiveTopics(ctx context.Context, pagination *types.SimpleCursorPaginationRequest) ([]TopicId, *types.SimpleCursorPaginationResponse, error) {
-	limit, start, err := k.CalcAppropriatePaginationForUint64Cursor(ctx, pagination)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	startKey := make([]byte, binary.MaxVarintLen64)
-	binary.BigEndian.PutUint64(startKey, start)
-	nextKey := make([]byte, binary.MaxVarintLen64)
-	binary.BigEndian.PutUint64(nextKey, start+limit)
-
-	rng, err := k.activeTopics.IterateRaw(ctx, startKey, nextKey, collections.OrderAscending)
-	if err != nil {
-		return nil, nil, err
-	}
-	activeTopics, err := rng.Keys()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rng.Close()
-
-	// If there are no topics, we return the nil for next key
-	if activeTopics == nil {
-		nextKey = make([]byte, 0)
-	}
-
-	return activeTopics, &types.SimpleCursorPaginationResponse{
-		NextKey: nextKey,
-	}, nil
-}
-```
-
-## Tool used
-
-Manual Review
-
-## Recommendation
-
-Modify the `GetIdsOfActiveTopics` function to ensure it returns the correct number of active topic IDs, regardless of gaps in the ID sequence. This could involve:
-
-1. Implementing a cursor-based pagination system that tracks the last returned topic ID rather than using a fixed range.
-2. Modifying the iteration logic to continue searching for active topics until the requested limit is reached or all topics have been checked.
-3. Considering a different storage structure for active topics that allows for more efficient retrieval of non-consecutive IDs.
-
-Here's a high-level pseudocode example of how the function could be modified:
-
-```go
-func (k Keeper) GetIdsOfActiveTopics(ctx context.Context, pagination *types.SimpleCursorPaginationRequest) ([]TopicId, *types.SimpleCursorPaginationResponse, error) {
-    limit, cursor, err := k.CalcAppropriatePaginationForUint64Cursor(ctx, pagination)
-    if err != nil {
-        return nil, nil, err
-    }
-
-    var activeTopics []TopicId
-    var lastKey []byte
-
-    iter, err := k.activeTopics.Iterate(ctx, collections.StartAfter(cursor))
-    if err != nil {
-        return nil, nil, err
-    }
-    defer iter.Close()
-
-    for ; iter.Valid() && len(activeTopics) < int(limit); iter.Next() {
-        topicId, err := iter.Key()
-        if err != nil {
-            return nil, nil, err
-        }
-        activeTopics = append(activeTopics, topicId)
-        lastKey = iter.Key().Bytes()
-    }
-
-    var nextKey []byte
-    if iter.Valid() {
-        nextKey = lastKey
-    }
-
-    return activeTopics, &types.SimpleCursorPaginationResponse{
-        NextKey: nextKey,
-    }, nil
-}
-```
-
-
-
-## Discussion
-
-**sherlock-admin4**
-
-1 comment(s) were left on this issue during the judging contest.
-
-**0xmystery** commented:
-> `GetIdsOfActiveTopics` incorrectly assumes that IDs of active topics are always sequential
-
-
-
-**sherlock-admin2**
-
-The protocol team fixed this issue in the following PRs/commits:
-https://github.com/allora-network/allora-chain/pull/406
-
-
-# Issue H-14: `AlloraPendingRewardForDelegator` module account could have insufficient rewards due to truncation 
+# Issue H-9: `AlloraPendingRewardForDelegator` module account could have insufficient rewards due to truncation 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/74 
 
@@ -1756,7 +1192,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/424
 
 
-# Issue H-15: `GenerateForecastScores` acidentally updates inferences scores 
+# Issue H-10: `GenerateForecastScores` acidentally updates inferences scores 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/79 
 
@@ -1845,124 +1281,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/466
 
 
-# Issue H-16: `required_minimum_stake` is not verified when registering network participants 
-
-Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/86 
-
-## Found by 
-0x3b
-### Summary
-In order to register, workers or reputers should have at least 100 allo staked. However, `Register` doesn't check for this.
-
-### Vulnerability Detail
-The Allora docs state that to register network participants, whether reputers or workers, they need to have a minimum stake of 100 allo.
-
-https://docs.allora.network/devs/reference/params/chain#required_minimum_stake
-> Sets the minimum stake to be a worker or reputer. If a worker or reputer has less than this stake, then it is not eligible for rewards. This is set at worker and reputer registration.
-
-> Default Value: 100 allo
-
-However, this is not the case, as [Register](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_registrations.go#L14) will register and insert them into the worker/reputer array without checking any stake balances. The only allo check it does is if they have enough of it to pay the registration fee.
-
-```go
-func (ms msgServer) CheckBalanceForRegistration(ctx context.Context, address string) (bool, sdk.Coin, error) {
-	moduleParams, err := ms.k.GetParams(ctx)
-	if err != nil {
-		return false, sdk.Coin{}, err
-	}
-	fee := sdk.NewCoin(params.DefaultBondDenom, moduleParams.RegistrationFee)
-```
-
-Missing a min stake requirement can be potentially dangerous for the system, as it enables participants to participate without offering any backing/commitment.
-
-### Impact
-Workers and reputers don't need a minimum stake to participate in the system. This can also pose a threat to the security of the whole system.
-
-### Code Snippet
-```go
-func (ms msgServer) Register(ctx context.Context, msg *types.MsgRegister) (*types.MsgRegisterResponse, error) {
-    if err := msg.Validate(); err != nil {
-        return nil, err
-    }
-
-    topicExists, err := ms.k.TopicExists(ctx, msg.TopicId)
-    if err != nil {
-        return nil, err
-    }
-    if !topicExists {
-        return nil, types.ErrTopicDoesNotExist
-    }
-
-    //@audit doesn't check for min balance of stakers
-    hasEnoughBal, fee, err := ms.CheckBalanceForRegistration(ctx, msg.Sender)
-    if err != nil {
-        return nil, err
-    }
-    if !hasEnoughBal {
-        return nil, types.ErrTopicRegistrantNotEnoughDenom
-    }
-
-    // Before creating topic, transfer fee amount from creator to ecosystem bucket
-    err = ms.k.SendCoinsFromAccountToModule(ctx, msg.Sender, mintTypes.EcosystemModuleName, sdk.NewCoins(fee))
-    if err != nil {
-        return nil, err
-    }
-
-    nodeInfo := types.OffchainNode{
-        NodeAddress:  msg.Sender,
-        LibP2PKey:    msg.LibP2PKey,
-        MultiAddress: msg.MultiAddress,
-        Owner:        msg.Owner,
-        NodeId:       msg.Owner + "|" + msg.LibP2PKey,
-    }
-
-    if msg.IsReputer {
-        err = ms.k.InsertReputer(ctx, msg.TopicId, msg.Sender, nodeInfo)
-        if err != nil {
-            return nil, err
-        }
-    } else {
-        err = ms.k.InsertWorker(ctx, msg.TopicId, msg.Sender, nodeInfo)
-        if err != nil {
-            return nil, err
-        }
-    }
-
-    return &types.MsgRegisterResponse{
-        Success: true,
-        Message: "Node successfully registered",
-    }, nil
-}
-```
-
-### Tool Used
-Manual Review
-
-### Recommendation
-Include a check to verify that the registered party has staked at least `RequiredMinimumStake`.
-
-
-
-## Discussion
-
-**sherlock-admin2**
-
-The protocol team fixed this issue in the following PRs/commits:
-https://github.com/allora-network/docs/pull/45
-
-
-**relyt29**
-
-The documentation incorrectly leads one to believe that required_minimum_stake is enforced at time of registration. It is not, instead you should be able to register first and then stake - the stake required_minimum_stake is enforced at time of upload to reputer loss and reputation:
-
-https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/keeper/msgserver/msg_server_losses.go#L113-L119
-
-
-If a reputer does not have enough stake, they won't be able to upload loss bundles. If they aren't able to upload loss bundles, they get no rewards, later when rewards are calculated.
-
-I submitted a PR to update the documentation to make it clear that the system is intended to work in this way, rather than requiring minimum stake up front: https://github.com/allora-network/docs/pull/45
-
-# Issue H-17: InsertBulkReputerPayload can be DoS 
+# Issue H-11: InsertBulkReputerPayload can be DoS 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/88 
 
@@ -2063,12 +1382,12 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/458
 
 
-# Issue H-18: emissions/keeper/GetIdsOfActiveTopics may always return empty array [] 
+# Issue H-12: emissions/keeper/GetIdsOfActiveTopics may always return empty array [] 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/91 
 
 ## Found by 
-LZ\_security
+Kow, LZ\_security, imsrybr0
 ## Summary
 `GetIdsOfActiveTopics` may always return empty array, causing `topic weights` to not be updated.
 
@@ -2210,7 +1529,18 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/406
 
 
-# Issue H-19: Anyone can overwrite Reputer and Worker info attached to a LibP2PKey 
+**WangSecurity**
+
+This issue will be duplicated with #60 based on the discussion here https://github.com/sherlock-audit/2024-06-allora-judging/issues/115#issuecomment-2291343224
+
+**zhaojio**
+
+> This issue will be duplicated with #60 based on the discussion here [#115 (comment)](https://github.com/sherlock-audit/2024-06-allora-judging/issues/115#issuecomment-2291343224)
+
+#91 is not duplicate with #60, #60 and other reports do not describe attack by attacker, their impact is different. 
+
+
+# Issue H-13: Anyone can overwrite Reputer and Worker info attached to a LibP2PKey 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/111 
 
@@ -2387,7 +1717,552 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/458
 
 
-# Issue H-20: The worker and reputer's payload may be tampered due to lack of check for the pubkey's ownership 
+# Issue H-14: Malicious Reputer cause emissions/msgserver/InsertBulkReputerPayload to fail 
+
+Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/112 
+
+## Found by 
+LZ\_security
+
+## Summary
+Malicious Reputer passing in abnormal data causes InsertBulkReputerPayload to fail.
+
+## Vulnerability Detail
+The `synth.CalcNetworkLosses` function computes all data in bundles,
+InsertBulkReputerPayload -> synth.CalcNetworkLosses -> RunningWeightedAvgUpdate
+
+```go
+func RunningWeightedAvgUpdate(
+	runningWeightedAvg *RunningWeightedLoss,
+	nextWeight Weight,
+	nextValue Weight,
+) (RunningWeightedLoss, error) {
+@>	nextValTimesWeight, err := nextValue.Mul(nextWeight)
+	if err != nil {
+		return RunningWeightedLoss{}, err
+	}
+	newUnnormalizedWeightedLoss, err := runningWeightedAvg.UnnormalizedWeightedLoss.Add(nextValTimesWeight)
+	if err != nil {
+		return RunningWeightedLoss{}, err
+	}
+	newSumWeight, err := runningWeightedAvg.SumWeight.Add(nextWeight)
+	if err != nil {
+		return RunningWeightedLoss{}, err
+	}
+	return RunningWeightedLoss{
+		UnnormalizedWeightedLoss: newUnnormalizedWeightedLoss,
+		SumWeight:                newSumWeight,
+	}, nil
+}
+```
+
+nextValue * nextWeight If the value exceeds the maximum value of unit128, a failure is returned. As a result, `InsertBulkReputerPayload` fails.
+
+```go
+	networkLossBundle, err := synth.CalcNetworkLosses(stakesByReputer, bundles, params.Epsilon)
+	if err != nil {
+		return nil, err
+	}
+```
+
+Malicious reputers can pass in a larger `CombinedValue(nextValue)` and it will return an error,
+bundles array stores data from a number of Reputer. Execution will fail if one of the Reputer is malicious.
+
+The following test code demonstrates CalcNetworkLosses execution failure:
+
+```go
+func getTestCasesTwoWorkers() []struct {
+	name            string
+	stakesByReputer map[inference_synthesis.Worker]cosmosMath.Int
+	reportedLosses  emissions.ReputerValueBundles
+	epsilon         alloraMath.Dec
+	expectedOutput  emissions.ValueBundle
+	expectedError   error
+} {
+	return []struct {
+		name            string
+		stakesByReputer map[inference_synthesis.Worker]cosmosMath.Int
+		reportedLosses  emissions.ReputerValueBundles
+		epsilon         alloraMath.Dec
+		expectedOutput  emissions.ValueBundle
+		expectedError   error
+	}{
+		{
+			name: "simple two reputer combined loss",
+			stakesByReputer: map[inference_synthesis.Worker]cosmosMath.Int{
+				"worker1": inference_synthesis.CosmosIntOneE18(),           // 1 token
+				"worker2": inference_synthesis.CosmosIntOneE18().MulRaw(2), // 2 tokens
+			},
+			reportedLosses: emissions.ReputerValueBundles{
+				ReputerValueBundles: []*emissions.ReputerValueBundle{
+					{
+						ValueBundle: &emissions.ValueBundle{
+							Reputer:       "worker1",
+							CombinedValue: alloraMath.MustNewDecFromString("1e99999"),  //@audit The attacker passes in abnormal data
+							NaiveValue:    alloraMath.MustNewDecFromString("0.1"),
+							InfererValues: []*emissions.WorkerAttributedValue{
+								{
+									Worker: "worker1",
+									Value:  alloraMath.MustNewDecFromString("0.1"),
+								},
+								{
+									Worker: "worker2",
+									Value:  alloraMath.MustNewDecFromString("0.1"),
+								},
+							},
+							ForecasterValues: []*emissions.WorkerAttributedValue{
+								{
+									Worker: "worker1",
+									Value:  alloraMath.MustNewDecFromString("0.1"),
+								},
+								{
+									Worker: "worker2",
+									Value:  alloraMath.MustNewDecFromString("0.1"),
+								},
+							},
+							OneOutInfererValues: []*emissions.WithheldWorkerAttributedValue{
+								{
+									Worker: "worker1",
+									Value:  alloraMath.MustNewDecFromString("0.1"),
+								},
+								{
+									Worker: "worker2",
+									Value:  alloraMath.MustNewDecFromString("0.1"),
+								},
+							},
+							OneOutForecasterValues: []*emissions.WithheldWorkerAttributedValue{
+								{
+									Worker: "worker1",
+									Value:  alloraMath.MustNewDecFromString("0.1"),
+								},
+								{
+									Worker: "worker2",
+									Value:  alloraMath.MustNewDecFromString("0.1"),
+								},
+							},
+							OneInForecasterValues: []*emissions.WorkerAttributedValue{
+								{
+									Worker: "worker1",
+									Value:  alloraMath.MustNewDecFromString("0.1"),
+								},
+								{
+									Worker: "worker2",
+									Value:  alloraMath.MustNewDecFromString("0.1"),
+								},
+							},
+						},
+					},
+					{
+						ValueBundle: &emissions.ValueBundle{
+							Reputer:       "worker2",
+							CombinedValue: alloraMath.MustNewDecFromString("0.2"),
+							NaiveValue:    alloraMath.MustNewDecFromString("0.2"),
+							InfererValues: []*emissions.WorkerAttributedValue{
+								{
+									Worker: "worker1",
+									Value:  alloraMath.MustNewDecFromString("0.2"),
+								},
+								{
+									Worker: "worker2",
+									Value:  alloraMath.MustNewDecFromString("0.2"),
+								},
+							},
+							ForecasterValues: []*emissions.WorkerAttributedValue{
+								{
+									Worker: "worker1",
+									Value:  alloraMath.MustNewDecFromString("0.2"),
+								},
+								{
+									Worker: "worker2",
+									Value:  alloraMath.MustNewDecFromString("0.2"),
+								},
+							},
+							OneOutInfererValues: []*emissions.WithheldWorkerAttributedValue{
+								{
+									Worker: "worker1",
+									Value:  alloraMath.MustNewDecFromString("0.2"),
+								},
+								{
+									Worker: "worker2",
+									Value:  alloraMath.MustNewDecFromString("0.2"),
+								},
+							},
+							OneOutForecasterValues: []*emissions.WithheldWorkerAttributedValue{
+								{
+									Worker: "worker1",
+									Value:  alloraMath.MustNewDecFromString("0.2"),
+								},
+								{
+									Worker: "worker2",
+									Value:  alloraMath.MustNewDecFromString("0.2"),
+								},
+							},
+							OneInForecasterValues: []*emissions.WorkerAttributedValue{
+								{
+									Worker: "worker1",
+									Value:  alloraMath.MustNewDecFromString("0.2"),
+								},
+								{
+									Worker: "worker2",
+									Value:  alloraMath.MustNewDecFromString("0.2"),
+								},
+							},
+						},
+					},
+				},
+			},
+			epsilon: alloraMath.MustNewDecFromString("1e-4"),
+			expectedOutput: emissions.ValueBundle{
+				CombinedValue: alloraMath.MustNewDecFromString("0.166666666"),
+				NaiveValue:    alloraMath.MustNewDecFromString("0.166666666"),
+				InfererValues: []*emissions.WorkerAttributedValue{
+					{
+						Worker: "worker1",
+						Value:  alloraMath.MustNewDecFromString("0.166666666"),
+					},
+					{
+						Worker: "worker2",
+						Value:  alloraMath.MustNewDecFromString("0.166666666"),
+					},
+				},
+				ForecasterValues: []*emissions.WorkerAttributedValue{
+					{
+						Worker: "worker1",
+						Value:  alloraMath.MustNewDecFromString("0.166666666"),
+					},
+					{
+						Worker: "worker2",
+						Value:  alloraMath.MustNewDecFromString("0.166666666"),
+					},
+				},
+				OneOutInfererValues: []*emissions.WithheldWorkerAttributedValue{
+					{
+						Worker: "worker1",
+						Value:  alloraMath.MustNewDecFromString("0.166666666"),
+					},
+					{
+						Worker: "worker2",
+						Value:  alloraMath.MustNewDecFromString("0.166666666"),
+					},
+				},
+				OneOutForecasterValues: []*emissions.WithheldWorkerAttributedValue{
+					{
+						Worker: "worker1",
+						Value:  alloraMath.MustNewDecFromString("0.166666666"),
+					},
+					{
+						Worker: "worker2",
+						Value:  alloraMath.MustNewDecFromString("0.166666666"),
+					},
+				},
+				OneInForecasterValues: []*emissions.WorkerAttributedValue{
+					{
+						Worker: "worker1",
+						Value:  alloraMath.MustNewDecFromString("0.166666666"),
+					},
+					{
+						Worker: "worker2",
+						Value:  alloraMath.MustNewDecFromString("0.166666666"),
+					},
+				},
+			},
+			expectedError: nil,
+		},
+	}
+}
+
+func (s *InferenceSynthesisTestSuite) TestCalcNetworkLosses2() {
+	tests := getTestCasesTwoWorkers()
+	//require := s.Require()
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			output , err := inference_synthesis.CalcNetworkLosses(tc.stakesByReputer, tc.reportedLosses, tc.epsilon)
+			fmt.Println(err)
+			fmt.Println(output)
+		})
+	}
+}
+```
+
+Put the test code into the test file:
+allora-chain/x/emissions/keeper/inference_synthesis/network_losses_test.go
+
+> cd allora-chain/x/emissions/keeper/inference_synthesis/
+> go test  -v -run TestModuleTestSuite/TestCalcNetworkLosses2
+
+```shell
+Error updating running weighted average for next combined loss: decimal multiplication error: exponent out of range [/home/zhaojie/hacks/2024-06-allora-zhaojio/allora-chain/math/dec.go:269]
+{0 <nil>  [] 0 [] [] 0 [] [] []}
+-
+```
+## Impact
+InsertBulkReputerPayload fails to be executed. As a result, data of the Reputers cannot be submitted
+
+## Code Snippet
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_losses.go#L176-L179
+
+## Tool used
+
+Manual Review
+
+## Recommendation
+Perform security checks on data submitted by Reputers.
+
+
+
+## Discussion
+
+**sherlock-admin4**
+
+1 comment(s) were left on this issue during the judging contest.
+
+**0xmystery** commented:
+> Intended behavior
+
+
+
+**ZeroTrust01**
+
+Escalate
+
+This issue is valid.
+
+A malicious Reputer uses abnormal parameters to cause the ReputerPayload to fail (panic) during addition, which is not the intended behavior.
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> This issue is valid.
+> 
+> A malicious Reputer uses abnormal parameters to cause the ReputerPayload to fail (panic) during addition, which is not the intended behavior.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**mystery0x**
+
+> Escalate
+> 
+> This issue is valid.
+> 
+> A malicious Reputer uses abnormal parameters to cause the ReputerPayload to fail (panic) during addition, which is not the intended behavior.
+
+@ZeroTrust01 [InsertBulkReputerPayload](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_losses.go#L176-L179) wont panic during addition. it instead handles the error by returning it. This should be intended behavior.
+
+**zhaojio**
+
+> > Escalate
+> > This issue is valid.
+> > A malicious Reputer uses abnormal parameters to cause the ReputerPayload to fail (panic) during addition, which is not the intended behavior.
+> 
+> @ZeroTrust01 [InsertBulkReputerPayload](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_losses.go#L176-L179) wont panic during addition. it instead handles the error by returning it. This should be intended behavior.
+
+The problem is that the function fails to execute, which becomes a DoS attack.
+
+**WangSecurity**
+
+In that case, InsertBulkReputerPayload will fail forever or it's only a one-block DOS? Excuse me if it's a silly question.
+
+**zhaojio**
+
+> In that case, InsertBulkReputerPayload will fail forever or it's only a one-block DOS? Excuse me if it's a silly question.
+
+1. After the attack, if ReputerRequestNonce used by others(or attacker), InsertBulkReputerPayload would always fail.
+2. If in the next block the caller is still using the same parameter called InsertBulkReputerPayl
+oad, still fail, because contain the data of the attacker poisoned.
+3. An attacker can always use the same method to attack.
+
+**WangSecurity**
+
+Thank you for the clarification. Additional small question, the function is still callable, the Reputer has to use a different nonce (ReputerRequestNonce) and a different payload, correct? Only that nonce and the same payload are DOSed?
+
+Also, for example, can the reputer call this very same function with the same payload but with a different nonce, or vice versa? Or both have to be different from what the attacker used?
+
+**zhaojio**
+
+> Thank you for the clarification. Additional small question, the function is still callable, the Reputer has to use a different nonce (ReputerRequestNonce) and a different payload, correct? Only that nonce and the same payload are DOSed?
+> 
+> Also, for example, can the reputer call this very same function with the same payload but with a different nonce, or vice versa? Or both have to be different from what the attacker used?
+
+The Nonce is generated based on the BlockHeight. If the Nonce is used, it cannot be used again.
+payload contains WorkNonce. WorkNonce and RequestNonce are associated. payload and nonce cannot be replaced with each other, the new payload requires a new nonce.
+The nonce is an important resource of the system.
+
+**WangSecurity**
+
+Then, I'm not sure I understand what the problem is. The report says that the malicious reputer uses a large `CombinedValue(nextValue)` which results in failure of `InsertBulkReputerPayload` with the same nonce and payload. But, the same nonce shouldn't be used again in the first place. As I understand the issue is only a 1-block DOS. Hence, should remain invalid, planning to reject the escalation.
+
+**ZeroTrust01**
+
+> Then, I'm not sure I understand what the problem is. The report says that the malicious reputer uses a large `CombinedValue(nextValue)` which results in failure of `InsertBulkReputerPayload` with the same nonce and payload. But, the same nonce shouldn't be used again in the first place. As I understand the issue is only a 1-block DOS. Hence, should remain invalid, planning to reject the escalation.
+
+The issue is not a 1-block DOS.
+The attacker can  use the same method to attack on every block.
+
+**WangSecurity**
+
+But, in that case, the attacker has to perpetually execute an attack in each block to cause permanent DOS, correct? If we take one instance of the attack it's only a one-block DOS, correct? Moreover, as I understand this function is not time-sensitive. Hence, I believe the following rule from DOS requirements apply:
+> Griefing for gas (frontrunning a transaction to fail, even if can be done perpetually) is considered a DoS of a single block, hence only if the function is clearly time-sensitive, it can be a Medium severity issue.
+
+Hence, planning to reject the escalation and leave the issue as it is, unless anything from the above is incorrect.
+
+**zhaojio**
+
+> But, in that case, the attacker has to perpetually execute an attack in each block to cause permanent DOS, correct? If we take one instance of the attack it's only a one-block DOS, correct? Moreover, as I understand this function is not time-sensitive. Hence, I believe the following rule from DOS requirements apply:
+> 
+> > Griefing for gas (frontrunning a transaction to fail, even if can be done perpetually) is considered a DoS of a single block, hence only if the function is clearly time-sensitive, it can be a Medium severity issue.
+> 
+> Hence, planning to reject the escalation and leave the issue as it is, unless anything from the above is incorrect.
+
+But the problem here has nothing to do with gas, and there is no need to `frontrunning`, the input parameters are not checked in the code, and the attack will cause the function to fail to execute normally, which is inconsistent with the wishes of the caller.
+
+**zhaojio**
+
+The attacker does not consume gas, the attacker just provides a harmful data. The attacker has no cost and can attack every block.
+
+**WangSecurity**
+
+I see that the issue doesn't require front-running, but the impact here is that `InsertBulkReputerPayload` is DOSed only for one block. Hence, the rule applies, because for this issue to have constant DOS, the attack has to be repeated in the every block. Thus, it's considered a one-block DOS.
+
+Moreover, as I understand the report doesn't talk about the impact of harmful data, but about `InsertBulkReputerPayload` being unable to call for only one block.
+
+Hence, I still stand by my previous decision, planning to reject the escalation and leave the issue as it is.
+
+**zhaojio**
+
+> I see that the issue doesn't require front-running, but the impact here is that `InsertBulkReputerPayload` is DOSed only for one block. Hence, the rule applies, because for this issue to have constant DOS, the attack has to be repeated in the every block. Thus, it's considered a one-block DOS.
+> 
+> Moreover, as I understand the report doesn't talk about the impact of harmful data, but about `InsertBulkReputerPayload` being unable to call for only one block.
+> 
+> Hence, I still stand by my previous decision, planning to reject the escalation and leave the issue as it is.
+
+impact has been explained in the report:
+> InsertBulkReputerPayload fails to be executed. As a result, data of the Reputers cannot be submitted.
+
+If the caller using the same parameters, `InsertBulkReputerPayload` will always call you don't succeed.
+
+
+**WangSecurity**
+
+> impact has been explained in the report
+
+Yeah, sorry for the confusion, I didn't mean the impact is not in the report but meant that the impact in the report is only one-block DOS.
+
+> If the caller using the same parameters, InsertBulkReputerPayload will always call you don't succeed
+
+But, as I understand from the protocol's design, they shouldn't be able to call this function with the same parameters. For example, nonce by definition is the number that is expected to be used only once.
+
+Hence, the decision remains the same. Planning to reject the escalation and leave the issue as it is.
+
+**zhaojio**
+
+> they shouldn't be able to call this function with the same parameters.
+
+If the function call succeeds, it cannot be called again with the same parameters.
+But if an attacker causes the function call to fail, the caller cannot call it again with the same parameters, so it's not one-block DOS.
+
+
+**WangSecurity**
+
+Oh, I see, excuse me for the confusion. But, one iteration of the attack blocks only one set of the parameters. Hence, I would still say it’s low severity.
+
+**zhaojio**
+
+> Oh, I see, excuse me for the confusion. But, one iteration of the attack blocks only one set of the parameters. Hence, I would still say it’s low severity.
+
+Why low severity, because the caller modifies the parameter to avoid the attack?
+
+The caller of this function is b7s node, It is not a concept similar to an EOA account, therefore, the caller cannot modify the parameters to avoid the attack.
+
+```go
+	// Make 1 request per worker
+@>	req := &emissionstypes.MsgInsertBulkReputerPayload{
+		Sender: ap.Address,
+		ReputerRequestNonce: &emissionstypes.ReputerRequestNonce{
+			ReputerNonce: nonceCurrent,
+			WorkerNonce:  nonceEval,
+		},
+		TopicId:             topicId,
+		ReputerValueBundles: valueBundles,
+	}
+	// Print req as JSON to the log
+	reqJSON, err := json.Marshal(req)
+	if err != nil {
+		ap.Logger.Error().Err(err).Msg("Error marshaling MsgInsertBulkReputerPayload to print Msg as JSON")
+	} else {
+		ap.Logger.Info().Str("req_json", string(reqJSON)).Msg("Sending Reputer Mode Data")
+	}
+
+	go func() {
+@>	      _, _ = ap.SendDataWithRetry(ctx, req, NUM_REPUTER_RETRIES, NUM_REPUTER_RETRY_MIN_DELAY, NUM_REPUTER_RETRY_MAX_DELAY, "Send Reputer Leader Data")
+	}()
+```
+
+
+**WangSecurity**
+
+I didn’t say anything about avoiding the attack. I’ve said this is low severity because one iteration of the attack blocks only one set of values. The function can be called with other nonces and payloads. Hence, I believe it’s low severity. The decision remains the same, planning to reject the escalation and leave the issue as it is.
+
+**zhaojio**
+
+> I didn’t say anything about avoiding the attack. I’ve said this is low severity because one iteration of the attack blocks only one set of values. The function can be called with other nonces and payloads. Hence, I believe it’s low severity. The decision remains the same, planning to reject the escalation and leave the issue as it is.
+
+Failure of payloads submission will result in failure of weight update, calculation of reward is based on weight, resulting in loss of funds, it not low severity.
+
+
+**WangSecurity**
+
+That's what I was missing I think. To clarify, Reputer's data affects weights which affect rewards. Hence, if the attacker executes this attack with Nonce 1 and payload XYZ (arbitrary examples), the transaction fails, but these values cannot be used again. 
+
+In that case, payload XYZ will be forever lost and not applied to weights update and rewards distribution. Correct?
+
+To clarify, everyone can become a reputer, correct? And it's not a trusted role?
+
+**zhaojio**
+
+> In that case, payload XYZ will be forever lost and not applied to weights update and rewards distribution. Correct?
+
+payload XYZ wasn't lost, but couldn't be recommitted(same as forever lost), as explained in this comment https://github.com/sherlock-audit/2024-06-allora-judging/issues/112#issuecomment-2297858195
+
+> To clarify, everyone can become a reputer, correct? And it's not a trusted role?
+
+Reputers are participants in the system,I think it's open to anyone, not trusted roles like admin.
+https://docs.allora.network/devs/reputers/reputers
+
+**relyt29**
+
+I think this is a legitimate bug, medium severity - the problem is that you should not be able to deny other reputers rewards for their work that block, even if your reputation data is bogus. 
+
+Fixed in https://github.com/allora-network/allora-chain/pull/494 - we removed blockless altogether, there is no aggregation step of reputer data now, each reputer separately sends a transaction to the network to upload their data so one reputer cannot deny other reputer's rewards
+
+yes this is a one-block DoS but I still consider it quite serious
+
+**WangSecurity**
+
+Excuse me for the confusion and not understanding the impact fully. Indeed by submitting the payload with a high next value, the payload will fail to submit and cannot be submitted later. This leads to a loss of rewards. The high severity is appropriate since it leads to a loss of funds without extensive limitations. Planning to accept the escalation and validate with high severity.
+
+**WangSecurity**
+
+Result:
+High
+Unique
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [ZeroTrust01](https://github.com/sherlock-audit/2024-06-allora-judging/issues/112/#issuecomment-2282665638): accepted
+
+**WangSecurity**
+
+@mystery0x @zhaojio there are no duplicates, correct?
+
+# Issue H-15: The worker and reputer's payload may be tampered due to lack of check for the pubkey's ownership 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/124 
 
@@ -2695,6 +2570,8 @@ https://github.com/allora-network/allora-chain/pull/447
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/15 
 
+The protocol has acknowledged this issue.
+
 ## Found by 
 volodya
 ## Summary
@@ -2838,65 +2715,11 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/395
 
 
-# Issue M-5: incorrect default genesis state in emission module 
-
-Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/20 
-
-## Found by 
-volodya
-## Summary
-incorrect default genesis state in emission module 
-## Vulnerability Detail
-Input params are missing inside state generation for `types.NewGenesisState()`
-```go
-func (AppModule) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
-	return cdc.MustMarshalJSON(types.NewGenesisState())
-}
-```
-[emissions/module/module.go#L79](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/module/module.go#L79)
-If we will look at `NewGenesisState` it accepts params, so incorrect state will be generated
-```go
-func NewGenesisState(
-	params Params,
-	previousRewardEmissionPerUnitStakedToken math.LegacyDec,
-	previousBlockEmission math.Int,
-	ecosystemTokensMinted math.Int,
-) *GenesisState {
-	return &GenesisState{
-		Params:                                   params,
-		PreviousRewardEmissionPerUnitStakedToken: previousRewardEmissionPerUnitStakedToken,
-		PreviousBlockEmission:                    previousBlockEmission,
-		EcosystemTokensMinted:                    ecosystemTokensMinted,
-	}
-}
-```
-## Impact
-Incorrect state params generation
-## Code Snippet
-
-## Tool used
-
-Manual Review
-
-## Recommendation
-Pass appropriate params or use `cdc.MustMarshalJSON(types.DefaultGenesisState())`
-
-
-
-## Discussion
-
-**sherlock-admin2**
-
-1 comment(s) were left on this issue during the judging contest.
-
-**0xmystery** commented:
-> DefaultGenesis uses wrong type
-
-
-
-# Issue M-6: Silent Failure in MustNewDecFromString Can Lead to Node Crashes 
+# Issue M-5: Silent Failure in MustNewDecFromString Can Lead to Node Crashes 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/22 
+
+The protocol has acknowledged this issue.
 
 ## Found by 
 defsec
@@ -2955,87 +2778,7 @@ if err != nil {
 
 
 
-# Issue M-7: errors are not being handled which can lead to executing code with errors(silencing them) or a halt chain due to panic 
-
-Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/24 
-
-## Found by 
-volodya
-## Summary
-returns from ".Set" ".Get" are not being handled which can lead to executing code with errors or a halt chain.
-## Vulnerability Detail
-error from SetDelegateStakePlacement is not handling like it is done in another part of the codebase
-```go
-		if err != nil {
-			return nil, err
-		}
-		ms.k.SetDelegateStakePlacement(ctx, msg.TopicId, msg.Sender, msg.Reputer, delegateInfo)
-	}
-```
-[msg_server_stake.go#L303](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_stake.go#L303)
-
-```go
-	if err := k.SetDelegateStakePlacement(ctx, topicId, delegator, reputer, stakePlacementNew); err != nil {
-		return errorsmod.Wrapf(err, "Setting delegate stake placement failed")
-	}
-```
-[emissions/keeper/keeper.go#L1052](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/keeper.go#L1052)
-
-Other examples
-```go
-					am.keeper.PruneReputerNonces(sdkCtx, topic.Id, reputerPruningBlock)
-
-```
-[emissions/module/abci.go#L92](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/module/abci.go#L92)
-
-```go
-func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, data json.RawMessage) {
-	var genesisState types.GenesisState
-	cdc.MustUnmarshalJSON(data, &genesisState)
-
-	am.keeper.InitGenesis(ctx, am.authKeeper, &genesisState)
-}
-```
-[x/mint/module/module.go#L126](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/mint/module/module.go#L126)
-
-```go
-						am.keeper.PruneWorkerNonces(sdkCtx, topic.Id, workerPruningBlock)
-
-```
-[emissions/module/abci.go#L99](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/module/abci.go#L99)
-
-```go
-		k.AddWhitelistAdmin(ctx, addr)
-```
-[genesis.go#L59](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/genesis.go#L59)
-
-```go
-		k.SetInfererNetworkRegret(ctx, topicId, infererLoss.Worker, newInfererRegret)
-```
-[/inference_synthesis/network_regrets.go#L121](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/inference_synthesis/network_regrets.go#L121)
-
-```diff
-func (k *Keeper) ResetChurnableTopics(ctx context.Context) error {
--	k.churnableTopics.Clear(ctx, nil)
--	return nil
-+    return k.churnableTopics.Clear(ctx, nil)
-}
-```
-[emissions/keeper/keeper.go#L1749](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/keeper.go#L1749)
-
-multiple others in code
-## Impact
-
-## Code Snippet
-
-## Tool used
-
-Manual Review
-
-## Recommendation
-Implement correct error handling
-
-# Issue M-8: incorrect condition for the iterative update of Equation 34 
+# Issue M-6: incorrect condition for the iterative update of Equation 34 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/26 
 
@@ -3079,7 +2822,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/450
 
 
-# Issue M-9: Standard deviation calculation is biased 
+# Issue M-7: Standard deviation calculation is biased 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/27 
 
@@ -3125,7 +2868,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/460
 
 
-# Issue M-10: Malicious peer can cause a syncing node to panic during blocksync 
+# Issue M-8: Malicious peer can cause a syncing node to panic during blocksync 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/28 
 
@@ -3169,7 +2912,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/457
 
 
-# Issue M-11: Treasury cap restriction will not hold and one block per month will be compromised 
+# Issue M-9: Treasury cap restriction will not hold and one block per month will be compromised 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/40 
 
@@ -3285,7 +3028,48 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/457
 
 
-# Issue M-12: Incomplete Zero-Height Genesis Preparation in Allora Network 
+**0xVolodya**
+
+Escalate
+I believe this is HIGH due to the fact that this function located inside `BeginBlocker` and block will be comprised once it will hit minting cap
+
+**sherlock-admin3**
+
+> Escalate
+> I believe this is HIGH due to the fact that this function located inside `BeginBlocker` and block will be comprised once it will hit minting cap
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**WangSecurity**
+
+As I understand, there are no limitations on this issue except hitting the minting cap, and it will happen every time, but I don't see how the report shows the loss of funds and the only impact is the compromised block, no?
+
+**0xVolodya**
+
+yes, the only impact is the compromised block, medium, my bad
+
+**WangSecurity**
+
+Planning to reject the escalation and leave the issue as it is.
+
+**WangSecurity**
+
+Result:
+Medium 
+Unique
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [0xVolodya](https://github.com/sherlock-audit/2024-06-allora-judging/issues/40/#issuecomment-2277209182): rejected
+
+# Issue M-10: Incomplete Zero-Height Genesis Preparation in Allora Network 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/43 
 
@@ -3537,7 +3321,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/443
 
 
-# Issue M-13: Funding amount is accounted twice leading to activating topic before reaching the global minimum 
+# Issue M-11: Funding amount is accounted twice leading to activating topic before reaching the global minimum 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/46 
 
@@ -3859,7 +3643,7 @@ index 3de71dd..18fffe7 100644
 
 
 
-# Issue M-14: Lack of Timeout leads Resource Exhaustion in API Client 
+# Issue M-12: Lack of Timeout leads Resource Exhaustion in API Client 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/47 
 
@@ -3982,7 +3766,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/458
 
 
-# Issue M-15: SendDataWithRetry doesn't work properly(Retries will not happen) 
+# Issue M-13: SendDataWithRetry doesn't work properly(Retries will not happen) 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/52 
 
@@ -4090,7 +3874,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/494
 
 
-# Issue M-16: logic bug in this IBC middleware code related to packet handling. 
+# Issue M-14: logic bug in this IBC middleware code related to packet handling. 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/66 
 
@@ -4281,7 +4065,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/453
 
 
-# Issue M-17: Incomplete Topic Processing Due to Continuous Retry on Pagination Error 
+# Issue M-15: Incomplete Topic Processing Due to Continuous Retry on Pagination Error 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/80 
 
@@ -4408,7 +4192,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/437
 
 
-# Issue M-18: Mint and Emissions modules register errors with an error code of 1 
+# Issue M-16: Mint and Emissions modules register errors with an error code of 1 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/82 
 
@@ -4459,7 +4243,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/504
 
 
-# Issue M-19: Some Iterators are not closed in emissions module Keeper 
+# Issue M-17: Some Iterators are not closed in emissions module Keeper 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/83 
 
@@ -4613,9 +4397,11 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/362
 
 
-# Issue M-20: RemoveDelegateStake silently handles the error when checking for existing removals 
+# Issue M-18: RemoveDelegateStake silently handles the error when checking for existing removals 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/84 
+
+The protocol has acknowledged this issue.
 
 ## Found by 
 imsrybr0
@@ -4674,7 +4460,7 @@ Return the error from `RemoveDelegateStake`
 
 
 
-# Issue M-21: Potential race conditions due to usage of ````sdk.Context```` in concurrent goroutines 
+# Issue M-19: Potential race conditions due to usage of ````sdk.Context```` in concurrent goroutines 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/87 
 
@@ -4749,7 +4535,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/494
 
 
-# Issue M-22: Missing export `CoreTeamAddresses` in `x/emissions` module 
+# Issue M-20: Missing export `CoreTeamAddresses` in `x/emissions` module 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/89 
 
@@ -4806,9 +4592,11 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/443
 
 
-# Issue M-23: If old coefficient is bigger than the new one then the reputer has it's coeff reduced more than it should 
+# Issue M-21: If old coefficient is bigger than the new one then the reputer has it's coeff reduced more than it should 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/92 
+
+The protocol has acknowledged this issue.
 
 ## Found by 
 0x3b
@@ -4951,7 +4739,15 @@ A good solution would be to `.abs()` the value in order to make sure it is alway
 
 
 
-# Issue M-24: coefficients math mistakenly calculates the coefficient diff with the same value 
+**jmdkastro**
+
+This is working as intended and simply follows linear interpolation, where indeed it can be necessary to subtract a small delta from the _old_ coefficient to arrive at the `minStakeFraction` -> this issue does not require acting on.
+
+**jmdkastro**
+
+As for the second part (`dcoeff` flipping sign), when this happens also the difference between `score` and `score2` flips sign, and therefore the sign of the gradient does not change, contrary to what is stated in this issue.
+
+# Issue M-22: coefficients math mistakenly calculates the coefficient diff with the same value 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/93 
 
@@ -5054,7 +4850,13 @@ Change the math to get the difference (preferably absolute -`.abs()`) between th
 
 
 
-# Issue M-25: Topics wont activate even with a sufficient stake 
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/516
+
+
+# Issue M-23: Topics wont activate even with a sufficient stake 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/95 
 
@@ -5141,7 +4943,7 @@ so it's not that topics won't ever activate, but there should certainly be corne
 
 either way the bug is right and we should fix this thank you for your report
 
-# Issue M-26: The SelectTopNWorkerNonces function lacks a sorting algorithm internally. 
+# Issue M-24: The SelectTopNWorkerNonces function lacks a sorting algorithm internally. 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/96 
 
@@ -5219,7 +5021,7 @@ The protocol team fixed this issue in the following PRs/commits:
 https://github.com/allora-network/allora-chain/pull/458
 
 
-# Issue M-27: topic_rewards/SafeApplyFuncOnAllActiveEpochEndingTopics used the wrong parameters 
+# Issue M-25: topic_rewards/SafeApplyFuncOnAllActiveEpochEndingTopics used the wrong parameters 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/97 
 
@@ -5301,7 +5103,334 @@ Manual Review
 ## Recommendation
 Use the correct parameters
 
-# Issue M-28: math miscalculation artificially deflates scores 
+
+
+## Discussion
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> This issue should be  high :
+> 
+> 	1.	If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue #56.
+> 	2.	If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue #60. Therefore, this issue should also be considered high severity.
+
+The escalation could not be created because you are not exceeding the escalation threshold.
+
+You can view the required number of additional valid issues/judging contest payouts in your Profile page,
+in the [Sherlock webapp](https://app.sherlock.xyz/audits/).
+
+
+**ZeroTrust01**
+
+Escalate
+
+This issue should be  high :
+
+1.	If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue #56.
+
+2.	If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue #60. Therefore, this issue should also be considered high severity.
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> This issue should be  high :
+> 
+> 1.	If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue #56.
+> 
+> 2.	If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue #60. Therefore, this issue should also be considered high severity.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**mystery0x**
+
+> Escalate
+> 
+> This issue should be high :
+> 
+> 1. If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue [imsrybr0 - Attacker can slow down / halt the chain by queuing multiple stake removals or delegate stake removals #56](https://github.com/sherlock-audit/2024-06-allora-judging/issues/56).
+> 2. If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue [defsec - Pagination method fails to return complete pages for non-consecutive active topic IDs #60](https://github.com/sherlock-audit/2024-06-allora-judging/issues/60). Therefore, this issue should also be considered high severity.
+
+The problem depends heavily on the DefaultPageLimit being configured to a large/small value, which isn't as directly exploitable and straightforward as #56 & #60, which both have more direct attacks making them higher severity. I would classify as medium severity.
+
+**WangSecurity**
+
+Excuse me for a silly question, but want to confirm since not very familiar with Go, but `DefaultPageLimit`, `MaxPageLimit` and `topicPageLimit` are set by the admin? If not, then by whom?
+
+**ZeroTrust01**
+
+> Excuse me for a silly question, but want to confirm since not very familiar with Go, but `DefaultPageLimit`, `MaxPageLimit` and `topicPageLimit` are set by the admin? If not, then by whom?
+
+Yes. DefaultPageLimit, MaxPageLimit and topicPageLimit are set by the admin.
+But there is a mistake in codebase.  There should be topicPageLimit  and  maxTopicPages, instead of topicPageLimit and topicPageLimit.  Typically, topicPageLimit is set relatively large, while TopicPages is set relatively small.​
+
+**WangSecurity**
+
+Fair enough, but as I understand, the code can function perfectly depending on the values set by the admin. Hence, it should be invalid, based on the following rule:
+> (External) Admin trust assumptions: When a function is access restricted, only values for specific function variables mentioned in the README can be taken into account when identifying an attack path.
+If no values are provided, the (external) admin is trusted to use values that will not cause any issues.
+Note: if the attack path is possible with any possible value, it will be a valid issue.
+
+Correct me if I'm wrong and the issue is with any admin value.
+
+For now, I believe it's not, hence, planning to reject the escalation cause it asks to increase the severity and invalidate the issue.
+
+**zhaojio**
+
+> Fair enough, but as I understand, the code can function perfectly depending on the values set by the admin. Hence, it should be invalid, based on the following rule:
+> > (External) Admin trust assumptions: When a function is access restricted, only values for specific function variables mentioned in the README can be taken into account when identifying an attack path.
+> If no values are provided, the (external) admin is trusted to use values that will not cause any issues.
+> Note: if the attack path is possible with any possible value, it will be a valid issue.
+> 
+> Correct me if I'm wrong and the issue is with any admin value.
+> 
+> For now, I believe it's not, hence, planning to reject the escalation cause it asks to increase the severity and invalidate the issue.
+
+admin is certainly trusted, but the code uses the wrong parameter, and the trusted parameter is used twice.
+
+**ZeroTrust01**
+
+> Fair enough, but as I understand, the code can function perfectly depending on the values set by the admin. Hence, it should be invalid, based on the following rule:
+> 
+> > (External) Admin trust assumptions: When a function is access restricted, only values for specific function variables mentioned in the README can be taken into account when identifying an attack path.
+> > If no values are provided, the (external) admin is trusted to use values that will not cause any issues.
+> > Note: if the attack path is possible with any possible value, it will be a valid issue.
+> 
+> Correct me if I'm wrong and the issue is with any admin value.
+> 
+> For now, I believe it's not, hence, planning to reject the escalation cause it asks to increase the severity and invalidate the issue.
+
+
+I cannot agree that it is invalid.
+
+First, this issue does not assume that the admin did anything wrong; rather, it is about discovering an error in the code.
+
+Secondly, I understand your point—despite the error in the code, the admin could potentially mitigate the issue by adjusting the parameters. However, since the number of topics is continuously increasing, the admin cannot fix the problem simply by modifying the DefaultPageLimit parameter.
+
+**WangSecurity**
+
+Firstly, excuse me for the confusion, I didn't imply any mistake from the admin.
+
+Secondly:
+> However, since the number of topics is continuously increasing, the admin cannot fix the problem simply by modifying the DefaultPageLimit parameter
+
+Can you share such a scenario?
+
+**ZeroTrust01**
+
+> Firstly, excuse me for the confusion, I didn't imply any mistake from the admin.
+> 
+> Secondly:
+> 
+> > However, since the number of topics is continuously increasing, the admin cannot fix the problem simply by modifying the DefaultPageLimit parameter
+> 
+> Can you share such a scenario?
+
+
+According to the comments in the code(https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/module/rewards/topic_rewards.go#L206-L213):
+```go
+// default page limit for the max because default is 100 and max is 1000
+// 1000 is excessive for the topic query
+```
+Let’s assume that the initial value of DefaultPageLimit is 100, and the number of topics has already reached 9990.
+
+The admin notices that the number of topics will exceed DefaultPageLimit * DefaultPageLimit = 100 * 100 = 10,000.
+Then, the admin sets the DefaultPageLimit to 1000(max).
+However, when the number of topics reaches 100,000, this may start to cause a halt of the chain.
+
+**WangSecurity**
+
+Oh, excuse me for not noticing the code comments. But the code comments indicate that it's the exact intention to use Default limit instead of Max limit. In this case, I believe it's not an issue or a mistake, it's the exact design of the protocol.
+
+Hence, this should remain invalid, planning to reject the escalation, since it asked to increase the severity, but invalidate the severity.
+
+**ZeroTrust01**
+
+We’re back to the starting point of the issue.
+
+**The issue we pointed out is not about using the default limit instead of the max limit.** 
+PageLimit refers to how many items (topics) are on one page, and Pages refers to how many pages there are. The mistake is that both parameters were using DefaultPageLimit when calling [`SafeApplyFuncOnAllActiveEpochEndingTopics()`](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic_rewards.go#L53) in codebase. 
+
+```javascript
+err=SafeApplyFuncOnAllActiveEpochEndingTopics(...,moduleParams.DefaultPageLimit,moduleParams.DefaultPageLimit)
+```
+**This is also why the sponsor confirmed the issue and will fix it.**
+
+When I gave the scenario example, I mentioned the max limit and pointed out that even if DefaultPageLimit is set to the max limit, the issue could still arise.
+I agree with the leader judge’s decision. This issue may not qualify as “high,” but it is definitely valid.
+
+**WangSecurity**
+
+But doesn't the report say that the exact problem is that the Default limit is used as Max limit, no?
+> SafeApplyFuncOnAllActiveEpochEndingTopics function in the last two parameters for topicPageLimit and maxTopicPages
+> But the problem is that call SafeApplyFuncOnAllActiveEpochEndingTopics function used the wrong parameters
+> The caller USES moduleParams.DefaultPageLimit as maxTopicPages
+
+Then the report describes different scenarios where the Default limit equals or is bigger than the max limit. So, after reading the report I believe the problem is exactly in the Default limit being used instead of the max limit. The report doesn't say that the problem in both parameters, only the problem in one is mentioned. 
+
+Additionally, if we use the max instead of the default, i.e. the correct parameter, the issue is even more likely to occur since max is expected to be 10 times larger than the default.
+
+Hence, my decision remains the same. The code comments indicate that the default instead of Max is used intentionally and the report talks about this problem, not about another parameter. Hence, planning to reject the escalation since it asked for higher severity, but will invalidate this issue.
+
+**ZeroTrust01**
+
+I think you misunderstood the issue a bit. 
+Let’s take a look at the definition of the function SafeApplyFuncOnAllActiveEpochEndingTopics().
+https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic_rewards.go#L53
+```go
+func SafeApplyFuncOnAllActiveEpochEndingTopics(
+	ctx sdk.Context,
+	k keeper.Keeper,
+	block BlockHeight,
+	fn func(sdkCtx sdk.Context, topic *types.Topic) error,
+	topicPageLimit uint64,
+	maxTopicPages uint64,
+)
+```
+There are two parameters related to the page.
+PageLimit refers to how many items (topics) are in one page, and Pages refers to how many pages there are. 
+So, using DefaultPageLimit for one of the parameters is correct, but using DefaultPageLimit for the other parameter is wrong. This is the issue we pointed out.
+
+**WangSecurity**
+
+To clarify, I believe using DefaultPageLimit for topicPageLimit is appropriate and works correctly, because we just use the default amount of topics in one page.
+
+I see how you saying that using DefaultPageLimit for maxTopicPages is not correct. But, that's the intention as evidenced in [these comments](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic_rewards.go#L206). I understand your concern that it uses the default number of topics in one page as the max number of pages. But, I believe it is exactly what the comments mean. Hence, I still believe it's intended, planning to reject the escalation since it asked for higher severity, but will invalidate this issue.
+
+**ZeroTrust01**
+
+> I see how you saying that using DefaultPageLimit for maxTopicPages is not correct. But, that's the intention as evidenced in [these comments](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic_rewards.go#L206). I understand your concern that it uses the default number of topics in one page as the max number of pages. But, I believe it is exactly what the comments mean. Hence, I still believe it's intended, planning to reject the escalation since it asked for higher severity, but will invalidate this issue.
+
+I cannot agree with that point. 
+
+1 DefaultPageLimit is 100, when the number of topics  are or greater than 10001, GetAndUpdateActiveTopicWeights() will miss active topics.
+
+2 Let’s take another look at what happens inside the SafeApplyFuncOnAllActiveEpochEndingTopics() function.
+```go
+// Apply a function on all active topics that also have an epoch ending at this block
+// Active topics have more than a globally-set minimum weight, a function of revenue and stake
+// "Safe" because bounded by max number of pages and apply running, online operations.
+func SafeApplyFuncOnAllActiveEpochEndingTopics(
+	ctx sdk.Context,
+	k keeper.Keeper,
+	block BlockHeight,
+	fn func(sdkCtx sdk.Context, topic *types.Topic) error,
+	topicPageLimit uint64,
+	maxTopicPages uint64,
+) error {
+	topicPageKey := make([]byte, 0)
+	i := uint64(0)
+	for {
+@>>		topicPageRequest := &types.SimpleCursorPaginationRequest{Limit: topicPageLimit, Key: topicPageKey}
+@>>		topicsActive, topicPageResponse, err := k.GetIdsOfActiveTopics(ctx, topicPageRequest)
+		if err != nil {
+			Logger(ctx).Warn(fmt.Sprintf("Error getting ids of active topics: %s", err.Error()))
+			continue
+		}
+
+		for _, topicId := range topicsActive {
+			topic, err := k.GetTopic(ctx, topicId)
+			if err != nil {
+				Logger(ctx).Warn(fmt.Sprintf("Error getting topic: %s", err.Error()))
+				continue
+			}
+
+			if k.CheckCadence(block, topic) {
+				// All checks passed => Apply function on the topic
+				err = fn(ctx, &topic)
+				if err != nil {
+					Logger(ctx).Warn(fmt.Sprintf("Error applying function on topic: %s", err.Error()))
+					continue
+				}
+			}
+		}
+
+		// if pageResponse.NextKey is empty then we have reached the end of the list
+		if topicsActive == nil || i > maxTopicPages {
+			break
+		}
+		topicPageKey = topicPageResponse.NextKey
+		i++
+	}
+	return nil
+}
+
+```
+
+DefaultPageLimit is mainly applied in the [GetIdsOfActiveTopics()](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/keeper/keeper.go#L1605) function, which also has an O(n²) sorting operation based on the size of the limit within the function.
+```go
+func (k Keeper) GetIdsOfActiveTopics(ctx context.Context, pagination *types.SimpleCursorPaginationRequest) ([]TopicId, *types.SimpleCursorPaginationResponse, error) {
+	limit, start, err := k.CalcAppropriatePaginationForUint64Cursor(ctx, pagination)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	startKey := make([]byte, binary.MaxVarintLen64)
+	binary.BigEndian.PutUint64(startKey, start)
+	nextKey := make([]byte, binary.MaxVarintLen64)
+	binary.BigEndian.PutUint64(nextKey, start+limit)
+
+@>>	rng, err := k.activeTopics.IterateRaw(ctx, startKey, nextKey, collections.OrderAscending)
+	if err != nil {
+		return nil, nil, err
+	}
+	activeTopics, err := rng.Keys()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rng.Close()
+
+	// If there are no topics, we return the nil for next key
+	if activeTopics == nil {
+		nextKey = make([]byte, 0)
+	}
+
+	return activeTopics, &types.SimpleCursorPaginationResponse{
+		NextKey: nextKey,
+	}, nil
+}
+```
+
+This is also why the team dev doesn’t directly sort all totalTopics at once, but instead breaks them into multiple pages for processing—because the pagelimit is relatively small. 
+Therefore, I believe [the comment](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic_rewards.go#L206) refers to the first parameter(max means moduleParams.MaxPageLimit which is 1000).
+
+The second parameter, maxTopicPages, can be set relatively large（like 1000） because it does not increase the time complexity of the sorting algorithm. Additionally, when the number of topics is insufficient, topicsActive = nil will directly break the loop.
+```javascript
+if topicsActive == nil || i > maxTopicPages {
+			break
+		}
+
+
+**relyt29**
+
+We did intentionally set it to `moduleParams.DefaultPageLimit`, but it was a half-assed hotfix to a real problem to limit it that way. I marked it as "will fix" because this issue highlights bad code that should be fixed because the code is overly complex and poorly written, regardless of whether the issue is a real security bug or not
+
+I would flag it as a confirmed bug, low or medium severity issue, it is true that our administrative parameters can control this, but it also conflates the meaning of DefaultPageLimit, it's bad practice and we should be more carefully setting this with a separate parameter that is just tunable for this particular processing loop alone
+
+**WangSecurity**
+
+In that case I agree that it should be a valid bug, but I still believe it's medium severity. The admin can partially control the situation, but the issue would arise regularly based on [this](https://github.com/sherlock-audit/2024-06-allora-judging/issues/97#issuecomment-2295480399) comment. Planning to reject the escalation and leave the issue as it is.
+
+**WangSecurity**
+
+Result:
+Medium
+Unique
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [ZeroTrust01](https://github.com/sherlock-audit/2024-06-allora-judging/issues/97/#issuecomment-2282666674): rejected
+
+# Issue M-26: math miscalculation artificially deflates scores 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/104 
 
@@ -5424,93 +5553,6 @@ Manual Review
 ## Recommendation
 In the cases where `consensusLosses == 0`, make sure after setting it to `epsilon` you also include it in the `consensusNorm`.
 
-# Issue M-29: Actors can game the withdraw waiting time 
-
-Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/106 
-
-## Found by 
-0x3b
-## Summary
-Actors can keep a withdrawal request scheduled all the time, which enables them to cut the withdrawal waiting time in half (or more).
-
-## Vulnerability Detail
-As the README explains, participants who have scheduled a withdrawal still fully participate in the system.
-> When stake is withdrawn, it still has the effect of being active so the consequences of placing stake there are fully felt. You can cancel a stake withdrawal at any time.
-
-This is actually implemented in the code, as [RemoveStake](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_stake.go#L61) (inside `msg_server_stake`) only records the removal and [RemoveStakes](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/module/stake_removals.go#L13) (inside `stake_removals`) does the system changes.
-
-This enables users to always have a withdrawal scheduled and cancel it just before it gets executed if they want to stay, and let it execute if they want to leave. This will cut the waiting period significantly. Here are two examples:
-
-1. User1 has a withdrawal request running constantly. He cancels it just before it gets executed and makes a new one.
-2. User2 is staking normally and makes the withdrawal request when he wants to leave.
-
-At time T, both users decide to leave because of some event, either inside or outside the system. User1 will already have his withdrawal request at N% completed (where N is between 0% and 100%, average 50%), and User2 will have his withdrawal request at 0% (he just made one). 
-
-## Impact
-Users can game the withdrawal system by having a withdrawal constantly scheduled.
-
-## Code Snippet
-```go
-//@audit The user can still act on the system, like he never made a withdraw request
-func (ms msgServer) RemoveStake(ctx context.Context, msg *types.MsgRemoveStake) (*types.MsgRemoveStakeResponse, error) {
-	if msg.Amount.IsZero() {
-		return nil, types.ErrReceivedZeroAmount
-	}
-
-	stakePlaced, err := ms.k.GetStakeReputerAuthority(ctx, msg.TopicId, msg.Sender)
-	if err != nil {
-		return nil, err
-	}
-
-	delegateStakeUponReputerInTopic, err := ms.k.GetDelegateStakeUponReputer(ctx, msg.TopicId, msg.Sender)
-	if err != nil {
-		return nil, err
-	}
-
-	reputerStakeInTopicWithoutDelegateStake := stakePlaced.Sub(delegateStakeUponReputerInTopic)
-	if msg.Amount.GT(reputerStakeInTopicWithoutDelegateStake) {
-		return nil, types.ErrInsufficientStakeToRemove
-	}
-
-	moduleParams, err := ms.k.GetParams(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	removal, found, err := ms.k.GetStakeRemovalForReputerAndTopicId(sdkCtx, msg.Sender, msg.TopicId)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "error while searching previous stake removal")
-	}
-
-	if found {
-		err = ms.k.DeleteStakeRemoval(ctx, removal.BlockRemovalCompleted, removal.TopicId, removal.Reputer)
-		if err != nil {
-			return nil, errorsmod.Wrap(err, "failed to delete previous stake removal")
-		}
-	}
-
-	stakeToRemove := types.StakeRemovalInfo{
-		BlockRemovalStarted:   sdkCtx.BlockHeight(),
-		BlockRemovalCompleted: sdkCtx.BlockHeight() + moduleParams.RemoveStakeDelayWindow,
-		TopicId:               msg.TopicId,
-		Reputer:               msg.Sender,
-		Amount:                msg.Amount,
-	}
-
-	err = ms.k.SetStakeRemoval(ctx, stakeToRemove)
-	if err != nil {
-		return nil, err
-	}
-	return &types.MsgRemoveStakeResponse{}, nil
-}
-```
-## Tool Used
-Manual Review
-
-## Recommendation
-This is an issue in many protocols with withdrawal queues. A general solution is to keep their commitment (the stake can be impacted), but remove their rights (they can't act on the system).
-
 
 
 ## Discussion
@@ -5518,10 +5560,10 @@ This is an issue in many protocols with withdrawal queues. A general solution is
 **sherlock-admin2**
 
 The protocol team fixed this issue in the following PRs/commits:
-https://github.com/allora-network/allora-chain/pull/362
+https://github.com/allora-network/allora-chain/pull/507
 
 
-# Issue M-30: The malicious node may not execute the http request 
+# Issue M-27: The malicious node may not execute the http request 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/107 
 
@@ -5590,7 +5632,13 @@ Let blockless query data from the chain instead of the node on the chain calling
 
 
 
-# Issue M-31: The issue of SLOW ABCI METHODS has not been resolved. 
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/458
+
+
+# Issue M-28: The issue of SLOW ABCI METHODS has not been resolved. 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/110 
 
@@ -5687,7 +5735,7 @@ ensuring they will scale correctly with the application's usage growth.
 
 
 
-# Issue M-32: `DripTopicFeeRevenue` drips the internal `topicFeeRevenue` and not the one provided by `GetCurrentTopicWeight` 
+# Issue M-29: `DripTopicFeeRevenue` drips the internal `topicFeeRevenue` and not the one provided by `GetCurrentTopicWeight` 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/114 
 
@@ -5771,7 +5819,7 @@ Manual Review
 ## Recommendation
 Make `DripTopicFeeRevenue` take a parameter `topicFeeRevenue` and drip that amount.
 
-# Issue M-33: SafeApplyFuncOnAllActiveEpochEndingTopics processes two more pages than the desired max topic page 
+# Issue M-30: SafeApplyFuncOnAllActiveEpochEndingTopics processes two more pages than the desired max topic page 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/117 
 
@@ -5921,7 +5969,7 @@ index fa67db0..7a75612 100644
 
 
 
-# Issue M-34: `GetForecastScoresUntilBlock` can get more score samples than the max allowed 
+# Issue M-31: `GetForecastScoresUntilBlock` can get more score samples than the max allowed 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/120 
 
@@ -6006,7 +6054,508 @@ Manual Review
 ## Recommendation
 Have the cap also inside the inner for loop to prevent picking more scores than the max limit.
 
-# Issue M-35: Lack of error handling when making blockless api call 
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/460
+
+
+# Issue M-32: `msg_server_stake::AddStake` calculates the weight incorrectly resulting in incorrect activation of a topic 
+
+Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/121 
+
+## Found by 
+0x3b, lemonmon
+## Summary
+
+Allora calculates the topic's weight based on the stake amount and fee revenue.
+In the `msg_server_stake::AddStake` function, the `activateTopicIfWeightAtLeastGlobalMin` was used incorrectly.
+It may activate the topic incorrectly.
+
+## Vulnerability Detail
+
+When a reputer send transaction to `AddStake`, at the end of the function, `activateTopicIfWeightAtLeastGlobalMin` will be called:
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_stake.go#L54
+
+The function will calculate the weight based on updated stake for the reputer and if the weight is large enough, the topic will be activated.
+
+Note that the last input to the call was `msg.Amount` which is the added stake by the reputer.
+
+
+In the `activateTopicIfWeightAtLeastGlobalMin` will call `GetCurrentTopicWeight` to calcaulate the new weight for the topic,
+and use the new weight to determine whether the topic should be activated:
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_util_topic_activation.go#L28-L36
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/topic_weight.go#L41-L49
+
+The last input the the `activateTopicIfWeightAtLeastGlobalMin` will be passed to `GetCurrentTopicWeight` as the last parameter.
+In the `GetCurrentTopicWeight` uses the last parameter `additionalRevenue` as the added topic fee revenue. It will be added to the existing topic fee revenue and passed to the `GetTargetWeight` as the fee revenue. 
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/topic_weight.go#L67-L80
+
+The topic's stake amount will be fetched using `GetTopicStake`:
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/topic_weight.go#L50
+
+The topic's stake amount is correct, since the topic's stake was already updated in the `AddStake` function. 
+
+The `GetTargetWeight` will calculate topic weight using both stake of the topic and fee revenue.
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/topic_weight.go#L12-L24
+
+```go
+// Return the target weight of a topic
+// ^w_{t,i} = S^{μ}_{t,i} * (P/C)^{ν}_{t,i}
+// where S_{t,i} is the stake of of topic t in the last reward epoch i
+// and (P/C)_{t,i} is the fee revenue collected for performing inference per topic epoch
+// requests for topic t in the last reward epoch i
+// μ, ν are global constants with fiduciary values of 0.5 and 0.5
+```
+
+As the result the added amount of stake will be considered as the fee revenue, and the weight will be calculated accordingly.
+
+## Impact
+
+When a reputer adds stake, it will calculate the topic's weight incorrectly, resulting in incorrect activation of the topic.
+
+## Code Snippet
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_stake.go#L54
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_util_topic_activation.go#L28-L36
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/topic_weight.go#L41-L49
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/topic_weight.go#L67-L80
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/topic_weight.go#L50
+
+https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/topic_weight.go#L12-L24
+
+## Tool used
+
+Manual Review
+
+## Recommendation
+
+use zero in the place of added fee revenue.
+
+```go
+// https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_stake.go#L54
+-  err = activateTopicIfWeightAtLeastGlobalMin(ctx, ms, msg.TopicId, msg.Amount)
++  err = activateTopicIfWeightAtLeastGlobalMin(ctx, ms, msg.TopicId, alloraMath.ZeroDec())
+```
+
+
+
+
+
+
+
+## Discussion
+
+**sherlock-admin3**
+
+1 comment(s) were left on this issue during the judging contest.
+
+**0xmystery** commented:
+> Topic funding amount is incorrectly accounted for twice
+
+
+
+**relyt29**
+
+I think this is a separate issue not a duplicate, as mentioned in #77 
+
+**0x3b33**
+
+Escalate 
+
+> > The same issue can be seen inside AddStake, where in this case, the stake amount is accidentally added as topic revenue.
+
+> I would consider this worthy of its own separate bug
+
+As mentioned by the sponsor in [this comment](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77#issuecomment-2273869207) this is issue can be it's own separate bug as it mentions how `AddStake` amount is accidentally added as topic revenue, causing topics to be activated even if they haven't reached the required weight.
+
+[77](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77) then would be a duplicate of this.
+
+**sherlock-admin3**
+
+> Escalate 
+> 
+> > > The same issue can be seen inside AddStake, where in this case, the stake amount is accidentally added as topic revenue.
+> 
+> > I would consider this worthy of its own separate bug
+> 
+> As mentioned by the sponsor in [this comment](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77#issuecomment-2273869207) this is issue can be it's own separate bug as it mentions how `AddStake` amount is accidentally added as topic revenue, causing topics to be activated even if they haven't reached the required weight.
+> 
+> [77](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77) then would be a duplicate of this.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**mystery0x**
+
+> Escalate
+> 
+> > > The same issue can be seen inside AddStake, where in this case, the stake amount is accidentally added as topic revenue.
+> 
+> > I would consider this worthy of its own separate bug
+> 
+> As mentioned by the sponsor in [this comment](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77#issuecomment-2273869207) this is issue can be it's own separate bug as it mentions how `AddStake` amount is accidentally added as topic revenue, causing topics to be activated even if they haven't reached the required weight.
+> 
+> [77](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77) then would be a duplicate of this.
+
+I agree that this should likely be a separate bug.
+
+**WangSecurity**
+
+I agree both are different issues, even though they seem the same (adding more value than it should). But in #46 it double adds to the fee revenue, while in this report it adds the staked amount to the fee revenue.
+
+Hence, planning to accept the escalation, and make a new family with medium severity. This issue will be the best, #77 will be the duplicate.
+
+**WangSecurity**
+
+Result:
+Medium
+Has duplicates
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [0x3b33](https://github.com/sherlock-audit/2024-06-allora-judging/issues/121/#issuecomment-2277735352): accepted
+
+# Issue M-33: Broken invariant : the sum of all (delegateRewardsPerShare * delegated stake 
+
+Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/129 
+
+## Found by 
+imsrybr0
+## Summary
+Broken invariant : the sum of all (delegateRewardsPerShare * delegated stake - reward debt) = the balance of the /x/bank AlloraPendingRewardForDelegatorAccountName module account when distributing delegate stakers rewards
+
+## Vulnerability Detail
+When distributing delegate stakers, the reward debt in increased by the full untrimmed amount while only the trimmed amount is sent to the delegate staker.
+
+Additionally, if the pending reward amount is less than 1, the reward debt will still be increased while no rewards are sent.
+
+## Impact
+AlloraPendingRewardForDelegatorAccountName will end up holding more than the amount owed.
+
+## Code Snippet
+[RewardDelegateStake](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_stake.go#L270-L309)
+```golang
+func (ms msgServer) RewardDelegateStake(ctx context.Context, msg *types.MsgRewardDelegateStake) (*types.MsgRewardDelegateStakeResponse, error) {
+	// Check the target reputer exists and is registered
+	isRegistered, err := ms.k.IsReputerRegisteredInTopic(ctx, msg.TopicId, msg.Reputer)
+	if err != nil {
+		return nil, err
+	}
+	if !isRegistered {
+		return nil, types.ErrAddressIsNotRegisteredInThisTopic
+	}
+
+	delegateInfo, err := ms.k.GetDelegateStakePlacement(ctx, msg.TopicId, msg.Sender, msg.Reputer)
+	if err != nil {
+		return nil, err
+	}
+	share, err := ms.k.GetDelegateRewardPerShare(ctx, msg.TopicId, msg.Reputer)
+	if err != nil {
+		return nil, err
+	}
+	pendingReward, err := delegateInfo.Amount.Mul(share)
+	if err != nil {
+		return nil, err
+	}
+	pendingReward, err = pendingReward.Sub(delegateInfo.RewardDebt)
+	if err != nil {
+		return nil, err
+	}
+	if pendingReward.Gt(alloraMath.NewDecFromInt64(0)) { // <===== Audit
+		coins := sdk.NewCoins(sdk.NewCoin(params.DefaultBondDenom, pendingReward.SdkIntTrim())) // <===== Audit : Only send the trimmed pending reward amount
+		err = ms.k.SendCoinsFromModuleToAccount(ctx, types.AlloraPendingRewardForDelegatorAccountName, msg.Sender, coins)
+		if err != nil {
+			return nil, err
+		}
+		delegateInfo.RewardDebt, err = delegateInfo.Amount.Mul(share)  // <===== Audit : Increases by the untrimmed pending reward amount
+		if err != nil {
+			return nil, err
+		}
+		ms.k.SetDelegateStakePlacement(ctx, msg.TopicId, msg.Sender, msg.Reputer, delegateInfo)
+	}
+	return &types.MsgRewardDelegateStakeResponse{}, nil
+}
+```
+
+[](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/keeper.go#L931-L1072)
+```golang
+func (k *Keeper) RemoveDelegateStake(
+	ctx context.Context,
+	blockHeight BlockHeight,
+	topicId TopicId,
+	delegator ActorId,
+	reputer ActorId,
+	stakeToRemove cosmosMath.Int,
+) error {
+	// CHECKS
+	if stakeToRemove.IsZero() {
+		return nil
+	}
+
+	// stakeSumFromDelegator >= stake
+	stakeSumFromDelegator, err := k.GetStakeFromDelegatorInTopic(ctx, topicId, delegator)
+	if err != nil {
+		return err
+	}
+	if stakeToRemove.GT(stakeSumFromDelegator) {
+		return types.ErrIntegerUnderflowStakeFromDelegator
+	}
+	stakeFromDelegatorNew := stakeSumFromDelegator.Sub(stakeToRemove)
+
+	// delegatedStakePlacement >= stake
+	delegatedStakePlacement, err := k.GetDelegateStakePlacement(ctx, topicId, delegator, reputer)
+	if err != nil {
+		return err
+	}
+	unStakeDec, err := alloraMath.NewDecFromSdkInt(stakeToRemove)
+	if err != nil {
+		return err
+	}
+	if delegatedStakePlacement.Amount.Lt(unStakeDec) {
+		return types.ErrIntegerUnderflowDelegateStakePlacement
+	}
+
+	// Get share for this topicId and reputer
+	share, err := k.GetDelegateRewardPerShare(ctx, topicId, reputer)
+	if err != nil {
+		return err
+	}
+
+	// Calculate pending reward and send to delegator
+	pendingReward, err := delegatedStakePlacement.Amount.Mul(share)
+	if err != nil {
+		return err
+	}
+	pendingReward, err = pendingReward.Sub(delegatedStakePlacement.RewardDebt)
+	if err != nil {
+		return err
+	}
+	if pendingReward.Gt(alloraMath.NewDecFromInt64(0)) {
+		err = k.SendCoinsFromModuleToAccount(
+			ctx,
+			types.AlloraPendingRewardForDelegatorAccountName,
+			delegator,
+			sdk.NewCoins(sdk.NewCoin(params.DefaultBondDenom, pendingReward.SdkIntTrim())),  // <===== Audit
+		)
+		if err != nil {
+			return errorsmod.Wrapf(err, "Sending pending reward to delegator failed")
+		}
+	}
+
+	newAmount, err := delegatedStakePlacement.Amount.Sub(unStakeDec)
+	if err != nil {
+		return err
+	}
+	newRewardDebt, err := newAmount.Mul(share)  // <===== Audit
+	if err != nil {
+		return err
+	}
+	stakePlacementNew := types.DelegatorInfo{
+		Amount:     newAmount,
+		RewardDebt: newRewardDebt, // <===== Audit
+	}
+        // ...
+}
+```
+
+[](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/keeper.go#L749-L854)
+```golang
+func (k *Keeper) AddDelegateStake(
+	ctx context.Context,
+	topicId TopicId,
+	delegator ActorId,
+	reputer ActorId,
+	stakeToAdd cosmosMath.Int,
+) error {
+	// CHECKS
+	if stakeToAdd.IsZero() {
+		return errorsmod.Wrapf(types.ErrInvalidValue, "delegator stake to add must be greater than zero")
+	}
+
+	// GET CURRENT VALUES
+	totalStake, err := k.GetTotalStake(ctx)
+	if err != nil {
+		return err
+	}
+	totalStakeNew := totalStake.Add(stakeToAdd)
+	topicStake, err := k.GetTopicStake(ctx, topicId)
+	if err != nil {
+		return err
+	}
+	topicStakeNew := topicStake.Add(stakeToAdd)
+	stakeReputerAuthority, err := k.GetStakeReputerAuthority(ctx, topicId, reputer)
+	if err != nil {
+		return err
+	}
+	stakeReputerAuthorityNew := stakeReputerAuthority.Add(stakeToAdd)
+	stakeSumFromDelegator, err := k.GetStakeFromDelegatorInTopic(ctx, topicId, delegator)
+	if err != nil {
+		return err
+	}
+	stakeSumFromDelegatorNew := stakeSumFromDelegator.Add(stakeToAdd)
+	delegateStakePlacement, err := k.GetDelegateStakePlacement(ctx, topicId, delegator, reputer)
+	if err != nil {
+		return err
+	}
+	share, err := k.GetDelegateRewardPerShare(ctx, topicId, reputer)
+	if err != nil {
+		return err
+	}
+	if delegateStakePlacement.Amount.Gt(alloraMath.NewDecFromInt64(0)) {
+		// Calculate pending reward and send to delegator
+		pendingReward, err := delegateStakePlacement.Amount.Mul(share)
+		if err != nil {
+			return err
+		}
+		pendingReward, err = pendingReward.Sub(delegateStakePlacement.RewardDebt)
+		if err != nil {
+			return err
+		}
+		if pendingReward.Gt(alloraMath.NewDecFromInt64(0)) {
+			err = k.SendCoinsFromModuleToAccount(
+				ctx,
+				types.AlloraPendingRewardForDelegatorAccountName,
+				delegator,
+				sdk.NewCoins(sdk.NewCoin(params.DefaultBondDenom, pendingReward.SdkIntTrim())),  // <===== Audit
+			)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	stakeToAddDec, err := alloraMath.NewDecFromSdkInt(stakeToAdd)
+	if err != nil {
+		return err
+	}
+	newAmount, err := delegateStakePlacement.Amount.Add(stakeToAddDec)
+	if err != nil {
+		return err
+	}
+	newDebt, err := newAmount.Mul(share)  // <===== Audit
+	if err != nil {
+		return err
+	}
+	stakePlacementNew := types.DelegatorInfo{
+		Amount:     newAmount,
+		RewardDebt: newDebt,  // <===== Audit
+	}
+	// ...
+}
+```
+
+## Tool used
+Manual Review
+
+## Recommendation
+* Check if the trimmed amount (instead of the untrimmed) is greater than zero.
+* Only increase the reward debt by the sent trimmed amount.
+
+
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+1 comment(s) were left on this issue during the judging contest.
+
+**0xmystery** commented:
+> Rewards are not correctly calculated
+
+
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/424
+
+
+**imsrybr0**
+
+Escalate
+
+This is different from #74 and wasn't fixed by https://github.com/allora-network/allora-chain/pull/424.
+
+**sherlock-admin3**
+
+> Escalate
+> 
+> This is different from #74 and wasn't fixed by https://github.com/allora-network/allora-chain/pull/424.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**mystery0x**
+
+This report is different from #74 and shouldn't be a duplicate.
+
+**WangSecurity**
+
+I agree it's not a duplicate of #74, but as I understand the only impact here is only that the invariant from the README is broken. Hence, it warrants medium severity, based on the following rule:
+> The protocol team can use the README (and only the README) to define language that indicates the codebase's restrictions and/or expected functionality. Issues that break these statements, irrespective of whether the impact is low/unknown, will be assigned Medium severity. High severity will be applied only if the issue falls into the High severity category in the judging guidelines
+
+Planning to accept the escalation and make it a separate medium-severity bug. @mystery0x @imsrybr0 are there any duplicates?
+
+**imsrybr0**
+
+Hi @WangSecurity,
+
+As far as I can tell, I couldn't find a similar report. Maybe I'm missing something, waiting for @mystery0x confirmation.
+
+
+**mystery0x**
+
+@WangSecurity 
+
+#127 might be a duplicate of this issue. Apart from that no other possible duplicates as far as I can tell.
+
+**imsrybr0**
+
+Hi @mystery0x, #127 is a duplicate of #74.
+
+**WangSecurity**
+
+As I understand, the problem with both reports is that the untrimmed amount is used, when the trimmed amount is sent. It may seem similar but these are not duplicates based on the code implementation and how and where the issue happens. In that case, I agree that #127 is a duplicate of #74, not the duplicate of this issue.
+
+**WangSecurity**
+
+Result:
+Medium
+Unique
+
+**sherlock-admin4**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [imsrybr0](https://github.com/sherlock-audit/2024-06-allora-judging/issues/129/#issuecomment-2277715658): accepted
+
+# Issue M-34: Lack of error handling when making blockless api call 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/131 
 
