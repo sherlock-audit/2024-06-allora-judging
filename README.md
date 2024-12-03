@@ -1531,13 +1531,13 @@ https://github.com/allora-network/allora-chain/pull/406
 
 **WangSecurity**
 
-This issue will be duplicated with #60 based on the discussion here https://github.com/sherlock-audit/2024-06-allora-judging/issues/115#issuecomment-2291343224
+This issue will be duplicated with \#60 based on the discussion here https://github.com/sherlock-audit/2024-06-allora-judging/issues/115\#issuecomment-2291343224
 
 **zhaojio**
 
-> This issue will be duplicated with #60 based on the discussion here [#115 (comment)](https://github.com/sherlock-audit/2024-06-allora-judging/issues/115#issuecomment-2291343224)
+> This issue will be duplicated with \#60 based on the discussion here [\#115 (comment)](https://github.com/sherlock-audit/2024-06-allora-judging/issues/115\#issuecomment-2291343224)
 
-#91 is not duplicate with #60, #60 and other reports do not describe attack by attacker, their impact is different. 
+\#91 is not duplicate with \#60, \#60 and other reports do not describe attack by attacker, their impact is different. 
 
 
 # Issue H-13: Anyone can overwrite Reputer and Worker info attached to a LibP2PKey 
@@ -2051,7 +2051,7 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 > 
 > A malicious Reputer uses abnormal parameters to cause the ReputerPayload to fail (panic) during addition, which is not the intended behavior.
 
-@ZeroTrust01 [InsertBulkReputerPayload](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_losses.go#L176-L179) wont panic during addition. it instead handles the error by returning it. This should be intended behavior.
+@ZeroTrust01 [InsertBulkReputerPayload](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg\_server\_losses.go\#L176-L179) wont panic during addition. it instead handles the error by returning it. This should be intended behavior.
 
 **zhaojio**
 
@@ -2059,7 +2059,7 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 > > This issue is valid.
 > > A malicious Reputer uses abnormal parameters to cause the ReputerPayload to fail (panic) during addition, which is not the intended behavior.
 > 
-> @ZeroTrust01 [InsertBulkReputerPayload](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg_server_losses.go#L176-L179) wont panic during addition. it instead handles the error by returning it. This should be intended behavior.
+> @ZeroTrust01 [InsertBulkReputerPayload](https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/keeper/msgserver/msg\_server\_losses.go\#L176-L179) wont panic during addition. it instead handles the error by returning it. This should be intended behavior.
 
 The problem is that the function fails to execute, which becomes a DoS attack.
 
@@ -2194,11 +2194,11 @@ The caller of this function is b7s node, It is not a concept similar to an EOA a
 	if err != nil {
 		ap.Logger.Error().Err(err).Msg("Error marshaling MsgInsertBulkReputerPayload to print Msg as JSON")
 	} else {
-		ap.Logger.Info().Str("req_json", string(reqJSON)).Msg("Sending Reputer Mode Data")
+		ap.Logger.Info().Str("req\_json", string(reqJSON)).Msg("Sending Reputer Mode Data")
 	}
 
 	go func() {
-@>	      _, _ = ap.SendDataWithRetry(ctx, req, NUM_REPUTER_RETRIES, NUM_REPUTER_RETRY_MIN_DELAY, NUM_REPUTER_RETRY_MAX_DELAY, "Send Reputer Leader Data")
+@>	      \_, \_ = ap.SendDataWithRetry(ctx, req, NUM\_REPUTER\_RETRIES, NUM\_REPUTER\_RETRY\_MIN\_DELAY, NUM\_REPUTER\_RETRY\_MAX\_DELAY, "Send Reputer Leader Data")
 	}()
 ```
 
@@ -2226,7 +2226,7 @@ To clarify, everyone can become a reputer, correct? And it's not a trusted role?
 
 > In that case, payload XYZ will be forever lost and not applied to weights update and rewards distribution. Correct?
 
-payload XYZ wasn't lost, but couldn't be recommitted(same as forever lost), as explained in this comment https://github.com/sherlock-audit/2024-06-allora-judging/issues/112#issuecomment-2297858195
+payload XYZ wasn't lost, but couldn't be recommitted(same as forever lost), as explained in this comment https://github.com/sherlock-audit/2024-06-allora-judging/issues/112\#issuecomment-2297858195
 
 > To clarify, everyone can become a reputer, correct? And it's not a trusted role?
 
@@ -2256,11 +2256,17 @@ Unique
 Escalations have been resolved successfully!
 
 Escalation status:
-- [ZeroTrust01](https://github.com/sherlock-audit/2024-06-allora-judging/issues/112/#issuecomment-2282665638): accepted
+- [ZeroTrust01](https://github.com/sherlock-audit/2024-06-allora-judging/issues/112/\#issuecomment-2282665638): accepted
 
 **WangSecurity**
 
 @mystery0x @zhaojio there are no duplicates, correct?
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/494
+
 
 # Issue H-15: The worker and reputer's payload may be tampered due to lack of check for the pubkey's ownership 
 
@@ -3067,7 +3073,7 @@ Unique
 Escalations have been resolved successfully!
 
 Escalation status:
-- [0xVolodya](https://github.com/sherlock-audit/2024-06-allora-judging/issues/40/#issuecomment-2277209182): rejected
+- [0xVolodya](https://github.com/sherlock-audit/2024-06-allora-judging/issues/40/\#issuecomment-2277209182): rejected
 
 # Issue M-10: Incomplete Zero-Height Genesis Preparation in Allora Network 
 
@@ -3641,6 +3647,12 @@ index 3de71dd..18fffe7 100644
 **0xmystery** commented:
 > Topic funding amount is incorrectly accounted for twice
 
+
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/505
 
 
 # Issue M-12: Lack of Timeout leads Resource Exhaustion in API Client 
@@ -4584,7 +4596,7 @@ Adding `CoreTeamAddresses` when exporting genesis state of `x/emissions` module
 
 **relyt29**
 
-this is indirectly a duplicate of #43 
+this is indirectly a duplicate of \#43 
 
 **sherlock-admin2**
 
@@ -4741,7 +4753,7 @@ A good solution would be to `.abs()` the value in order to make sure it is alway
 
 **jmdkastro**
 
-This is working as intended and simply follows linear interpolation, where indeed it can be necessary to subtract a small delta from the _old_ coefficient to arrive at the `minStakeFraction` -> this issue does not require acting on.
+This is working as intended and simply follows linear interpolation, where indeed it can be necessary to subtract a small delta from the \_old\_ coefficient to arrive at the `minStakeFraction` -> this issue does not require acting on.
 
 **jmdkastro**
 
@@ -4943,6 +4955,12 @@ so it's not that topics won't ever activate, but there should certainly be corne
 
 either way the bug is right and we should fix this thank you for your report
 
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/542
+
+
 # Issue M-24: The SelectTopNWorkerNonces function lacks a sorting algorithm internally. 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/96 
@@ -5113,8 +5131,8 @@ Use the correct parameters
 > 
 > This issue should be  high :
 > 
-> 	1.	If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue #56.
-> 	2.	If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue #60. Therefore, this issue should also be considered high severity.
+> 	1.	If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue \#56.
+> 	2.	If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue \#60. Therefore, this issue should also be considered high severity.
 
 The escalation could not be created because you are not exceeding the escalation threshold.
 
@@ -5128,9 +5146,9 @@ Escalate
 
 This issue should be  high :
 
-1.	If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue #56.
+1.	If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue \#56.
 
-2.	If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue #60. Therefore, this issue should also be considered high severity.
+2.	If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue \#60. Therefore, this issue should also be considered high severity.
 
 **sherlock-admin3**
 
@@ -5138,9 +5156,9 @@ This issue should be  high :
 > 
 > This issue should be  high :
 > 
-> 1.	If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue #56.
+> 1.	If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue \#56.
 > 
-> 2.	If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue #60. Therefore, this issue should also be considered high severity.
+> 2.	If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue \#60. Therefore, this issue should also be considered high severity.
 
 You've created a valid escalation!
 
@@ -5154,10 +5172,10 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 > 
 > This issue should be high :
 > 
-> 1. If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue [imsrybr0 - Attacker can slow down / halt the chain by queuing multiple stake removals or delegate stake removals #56](https://github.com/sherlock-audit/2024-06-allora-judging/issues/56).
-> 2. If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue [defsec - Pagination method fails to return complete pages for non-consecutive active topic IDs #60](https://github.com/sherlock-audit/2024-06-allora-judging/issues/60). Therefore, this issue should also be considered high severity.
+> 1. If the DefaultPageLimit is set to a large value, this issue could potentially cause a halt of the chain, which is as severe as issue [imsrybr0 - Attacker can slow down / halt the chain by queuing multiple stake removals or delegate stake removals \#56](https://github.com/sherlock-audit/2024-06-allora-judging/issues/56).
+> 2. If the DefaultPageLimit is set to a small value, the remaining topics might not be processed, which would have an impact and severity similar to issue [defsec - Pagination method fails to return complete pages for non-consecutive active topic IDs \#60](https://github.com/sherlock-audit/2024-06-allora-judging/issues/60). Therefore, this issue should also be considered high severity.
 
-The problem depends heavily on the DefaultPageLimit being configured to a large/small value, which isn't as directly exploitable and straightforward as #56 & #60, which both have more direct attacks making them higher severity. I would classify as medium severity.
+The problem depends heavily on the DefaultPageLimit being configured to a large/small value, which isn't as directly exploitable and straightforward as \#56 & \#60, which both have more direct attacks making them higher severity. I would classify as medium severity.
 
 **WangSecurity**
 
@@ -5233,7 +5251,7 @@ Can you share such a scenario?
 > Can you share such a scenario?
 
 
-According to the comments in the code(https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/module/rewards/topic_rewards.go#L206-L213):
+According to the comments in the code(https://github.com/sherlock-audit/2024-06-allora/blob/main/allora-chain/x/emissions/module/rewards/topic\_rewards.go\#L206-L213):
 ```go
 // default page limit for the max because default is 100 and max is 1000
 // 1000 is excessive for the topic query
@@ -5255,7 +5273,7 @@ Hence, this should remain invalid, planning to reject the escalation, since it a
 We’re back to the starting point of the issue.
 
 **The issue we pointed out is not about using the default limit instead of the max limit.** 
-PageLimit refers to how many items (topics) are on one page, and Pages refers to how many pages there are. The mistake is that both parameters were using DefaultPageLimit when calling [`SafeApplyFuncOnAllActiveEpochEndingTopics()`](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic_rewards.go#L53) in codebase. 
+PageLimit refers to how many items (topics) are on one page, and Pages refers to how many pages there are. The mistake is that both parameters were using DefaultPageLimit when calling [`SafeApplyFuncOnAllActiveEpochEndingTopics()`](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic\_rewards.go\#L53) in codebase. 
 
 ```javascript
 err=SafeApplyFuncOnAllActiveEpochEndingTopics(...,moduleParams.DefaultPageLimit,moduleParams.DefaultPageLimit)
@@ -5282,7 +5300,7 @@ Hence, my decision remains the same. The code comments indicate that the default
 
 I think you misunderstood the issue a bit. 
 Let’s take a look at the definition of the function SafeApplyFuncOnAllActiveEpochEndingTopics().
-https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic_rewards.go#L53
+https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic\_rewards.go\#L53
 ```go
 func SafeApplyFuncOnAllActiveEpochEndingTopics(
 	ctx sdk.Context,
@@ -5301,11 +5319,11 @@ So, using DefaultPageLimit for one of the parameters is correct, but using Defau
 
 To clarify, I believe using DefaultPageLimit for topicPageLimit is appropriate and works correctly, because we just use the default amount of topics in one page.
 
-I see how you saying that using DefaultPageLimit for maxTopicPages is not correct. But, that's the intention as evidenced in [these comments](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic_rewards.go#L206). I understand your concern that it uses the default number of topics in one page as the max number of pages. But, I believe it is exactly what the comments mean. Hence, I still believe it's intended, planning to reject the escalation since it asked for higher severity, but will invalidate this issue.
+I see how you saying that using DefaultPageLimit for maxTopicPages is not correct. But, that's the intention as evidenced in [these comments](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic\_rewards.go\#L206). I understand your concern that it uses the default number of topics in one page as the max number of pages. But, I believe it is exactly what the comments mean. Hence, I still believe it's intended, planning to reject the escalation since it asked for higher severity, but will invalidate this issue.
 
 **ZeroTrust01**
 
-> I see how you saying that using DefaultPageLimit for maxTopicPages is not correct. But, that's the intention as evidenced in [these comments](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic_rewards.go#L206). I understand your concern that it uses the default number of topics in one page as the max number of pages. But, I believe it is exactly what the comments mean. Hence, I still believe it's intended, planning to reject the escalation since it asked for higher severity, but will invalidate this issue.
+> I see how you saying that using DefaultPageLimit for maxTopicPages is not correct. But, that's the intention as evidenced in [these comments](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic\_rewards.go\#L206). I understand your concern that it uses the default number of topics in one page as the max number of pages. But, I believe it is exactly what the comments mean. Hence, I still believe it's intended, planning to reject the escalation since it asked for higher severity, but will invalidate this issue.
 
 I cannot agree with that point. 
 
@@ -5330,14 +5348,14 @@ func SafeApplyFuncOnAllActiveEpochEndingTopics(
 @>>		topicPageRequest := &types.SimpleCursorPaginationRequest{Limit: topicPageLimit, Key: topicPageKey}
 @>>		topicsActive, topicPageResponse, err := k.GetIdsOfActiveTopics(ctx, topicPageRequest)
 		if err != nil {
-			Logger(ctx).Warn(fmt.Sprintf("Error getting ids of active topics: %s", err.Error()))
+			Logger(ctx).Warn(fmt.Sprintf("Error getting ids of active topics: \%s", err.Error()))
 			continue
 		}
 
-		for _, topicId := range topicsActive {
+		for \_, topicId := range topicsActive {
 			topic, err := k.GetTopic(ctx, topicId)
 			if err != nil {
-				Logger(ctx).Warn(fmt.Sprintf("Error getting topic: %s", err.Error()))
+				Logger(ctx).Warn(fmt.Sprintf("Error getting topic: \%s", err.Error()))
 				continue
 			}
 
@@ -5345,7 +5363,7 @@ func SafeApplyFuncOnAllActiveEpochEndingTopics(
 				// All checks passed => Apply function on the topic
 				err = fn(ctx, &topic)
 				if err != nil {
-					Logger(ctx).Warn(fmt.Sprintf("Error applying function on topic: %s", err.Error()))
+					Logger(ctx).Warn(fmt.Sprintf("Error applying function on topic: \%s", err.Error()))
 					continue
 				}
 			}
@@ -5363,7 +5381,7 @@ func SafeApplyFuncOnAllActiveEpochEndingTopics(
 
 ```
 
-DefaultPageLimit is mainly applied in the [GetIdsOfActiveTopics()](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/keeper/keeper.go#L1605) function, which also has an O(n²) sorting operation based on the size of the limit within the function.
+DefaultPageLimit is mainly applied in the [GetIdsOfActiveTopics()](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/keeper/keeper.go\#L1605) function, which also has an O(n²) sorting operation based on the size of the limit within the function.
 ```go
 func (k Keeper) GetIdsOfActiveTopics(ctx context.Context, pagination *types.SimpleCursorPaginationRequest) ([]TopicId, *types.SimpleCursorPaginationResponse, error) {
 	limit, start, err := k.CalcAppropriatePaginationForUint64Cursor(ctx, pagination)
@@ -5398,7 +5416,7 @@ func (k Keeper) GetIdsOfActiveTopics(ctx context.Context, pagination *types.Simp
 ```
 
 This is also why the team dev doesn’t directly sort all totalTopics at once, but instead breaks them into multiple pages for processing—because the pagelimit is relatively small. 
-Therefore, I believe [the comment](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic_rewards.go#L206) refers to the first parameter(max means moduleParams.MaxPageLimit which is 1000).
+Therefore, I believe [the comment](https://github.com/sherlock-audit/2024-06-allora/blob/4e1bc73db32873476f8b0a88945815d3978d931c/allora-chain/x/emissions/module/rewards/topic\_rewards.go\#L206) refers to the first parameter(max means moduleParams.MaxPageLimit which is 1000).
 
 The second parameter, maxTopicPages, can be set relatively large（like 1000） because it does not increase the time complexity of the sorting algorithm. Additionally, when the number of topics is insufficient, topicsActive = nil will directly break the loop.
 ```javascript
@@ -5415,7 +5433,7 @@ I would flag it as a confirmed bug, low or medium severity issue, it is true tha
 
 **WangSecurity**
 
-In that case I agree that it should be a valid bug, but I still believe it's medium severity. The admin can partially control the situation, but the issue would arise regularly based on [this](https://github.com/sherlock-audit/2024-06-allora-judging/issues/97#issuecomment-2295480399) comment. Planning to reject the escalation and leave the issue as it is.
+In that case I agree that it should be a valid bug, but I still believe it's medium severity. The admin can partially control the situation, but the issue would arise regularly based on [this](https://github.com/sherlock-audit/2024-06-allora-judging/issues/97\#issuecomment-2295480399) comment. Planning to reject the escalation and leave the issue as it is.
 
 **WangSecurity**
 
@@ -5428,7 +5446,13 @@ Unique
 Escalations have been resolved successfully!
 
 Escalation status:
-- [ZeroTrust01](https://github.com/sherlock-audit/2024-06-allora-judging/issues/97/#issuecomment-2282666674): rejected
+- [ZeroTrust01](https://github.com/sherlock-audit/2024-06-allora-judging/issues/97/\#issuecomment-2282666674): rejected
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/542
+
 
 # Issue M-26: math miscalculation artificially deflates scores 
 
@@ -5735,6 +5759,18 @@ ensuring they will scale correctly with the application's usage growth.
 
 
 
+**relyt29**
+
+SafeApplyFuncOnAllActiveEpochEndingTopics renamed to GetAllActiveEpochEndingTopics and some of the logic reworked in  9d6b84d3fffecb3a9753cb075381b7306157360f
+
+Then later `GetAllActiveEpochEndingTopics` deleted in 9d6b84d3fffecb3a9753cb075381b7306157360f as we went to a different management of active set of topics. This active set management is not O(n) over the number of topics, thankfully
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/542
+
+
 # Issue M-29: `DripTopicFeeRevenue` drips the internal `topicFeeRevenue` and not the one provided by `GetCurrentTopicWeight` 
 
 Source: https://github.com/sherlock-audit/2024-06-allora-judging/issues/114 
@@ -5818,6 +5854,16 @@ Manual Review
 
 ## Recommendation
 Make `DripTopicFeeRevenue` take a parameter `topicFeeRevenue` and drip that amount.
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/505
+
 
 # Issue M-30: SafeApplyFuncOnAllActiveEpochEndingTopics processes two more pages than the desired max topic page 
 
@@ -5967,6 +6013,12 @@ index fa67db0..7a75612 100644
 **0xmystery** commented:
 > `SafeApplyFuncOnAllActiveEpochEndingTopics` will incorrectly loop additional topics when max topic page is already reached
 
+
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/542
 
 
 # Issue M-31: `GetForecastScoresUntilBlock` can get more score samples than the max allowed 
@@ -6171,7 +6223,7 @@ use zero in the place of added fee revenue.
 
 **relyt29**
 
-I think this is a separate issue not a duplicate, as mentioned in #77 
+I think this is a separate issue not a duplicate, as mentioned in \#77 
 
 **0x3b33**
 
@@ -6181,7 +6233,7 @@ Escalate
 
 > I would consider this worthy of its own separate bug
 
-As mentioned by the sponsor in [this comment](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77#issuecomment-2273869207) this is issue can be it's own separate bug as it mentions how `AddStake` amount is accidentally added as topic revenue, causing topics to be activated even if they haven't reached the required weight.
+As mentioned by the sponsor in [this comment](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77\#issuecomment-2273869207) this is issue can be it's own separate bug as it mentions how `AddStake` amount is accidentally added as topic revenue, causing topics to be activated even if they haven't reached the required weight.
 
 [77](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77) then would be a duplicate of this.
 
@@ -6193,7 +6245,7 @@ As mentioned by the sponsor in [this comment](https://github.com/sherlock-audit/
 > 
 > > I would consider this worthy of its own separate bug
 > 
-> As mentioned by the sponsor in [this comment](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77#issuecomment-2273869207) this is issue can be it's own separate bug as it mentions how `AddStake` amount is accidentally added as topic revenue, causing topics to be activated even if they haven't reached the required weight.
+> As mentioned by the sponsor in [this comment](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77\#issuecomment-2273869207) this is issue can be it's own separate bug as it mentions how `AddStake` amount is accidentally added as topic revenue, causing topics to be activated even if they haven't reached the required weight.
 > 
 > [77](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77) then would be a duplicate of this.
 
@@ -6211,7 +6263,7 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 > 
 > > I would consider this worthy of its own separate bug
 > 
-> As mentioned by the sponsor in [this comment](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77#issuecomment-2273869207) this is issue can be it's own separate bug as it mentions how `AddStake` amount is accidentally added as topic revenue, causing topics to be activated even if they haven't reached the required weight.
+> As mentioned by the sponsor in [this comment](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77\#issuecomment-2273869207) this is issue can be it's own separate bug as it mentions how `AddStake` amount is accidentally added as topic revenue, causing topics to be activated even if they haven't reached the required weight.
 > 
 > [77](https://github.com/sherlock-audit/2024-06-allora-judging/issues/77) then would be a duplicate of this.
 
@@ -6219,9 +6271,9 @@ I agree that this should likely be a separate bug.
 
 **WangSecurity**
 
-I agree both are different issues, even though they seem the same (adding more value than it should). But in #46 it double adds to the fee revenue, while in this report it adds the staked amount to the fee revenue.
+I agree both are different issues, even though they seem the same (adding more value than it should). But in \#46 it double adds to the fee revenue, while in this report it adds the staked amount to the fee revenue.
 
-Hence, planning to accept the escalation, and make a new family with medium severity. This issue will be the best, #77 will be the duplicate.
+Hence, planning to accept the escalation, and make a new family with medium severity. This issue will be the best, \#77 will be the duplicate.
 
 **WangSecurity**
 
@@ -6234,7 +6286,13 @@ Has duplicates
 Escalations have been resolved successfully!
 
 Escalation status:
-- [0x3b33](https://github.com/sherlock-audit/2024-06-allora-judging/issues/121/#issuecomment-2277735352): accepted
+- [0x3b33](https://github.com/sherlock-audit/2024-06-allora-judging/issues/121/\#issuecomment-2277735352): accepted
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/allora-network/allora-chain/pull/542
+
 
 # Issue M-33: Broken invariant : the sum of all (delegateRewardsPerShare * delegated stake 
 
@@ -6496,13 +6554,13 @@ https://github.com/allora-network/allora-chain/pull/424
 
 Escalate
 
-This is different from #74 and wasn't fixed by https://github.com/allora-network/allora-chain/pull/424.
+This is different from \#74 and wasn't fixed by https://github.com/allora-network/allora-chain/pull/424.
 
 **sherlock-admin3**
 
 > Escalate
 > 
-> This is different from #74 and wasn't fixed by https://github.com/allora-network/allora-chain/pull/424.
+> This is different from \#74 and wasn't fixed by https://github.com/allora-network/allora-chain/pull/424.
 
 You've created a valid escalation!
 
@@ -6512,11 +6570,11 @@ You may delete or edit your escalation comment anytime before the 48-hour escala
 
 **mystery0x**
 
-This report is different from #74 and shouldn't be a duplicate.
+This report is different from \#74 and shouldn't be a duplicate.
 
 **WangSecurity**
 
-I agree it's not a duplicate of #74, but as I understand the only impact here is only that the invariant from the README is broken. Hence, it warrants medium severity, based on the following rule:
+I agree it's not a duplicate of \#74, but as I understand the only impact here is only that the invariant from the README is broken. Hence, it warrants medium severity, based on the following rule:
 > The protocol team can use the README (and only the README) to define language that indicates the codebase's restrictions and/or expected functionality. Issues that break these statements, irrespective of whether the impact is low/unknown, will be assigned Medium severity. High severity will be applied only if the issue falls into the High severity category in the judging guidelines
 
 Planning to accept the escalation and make it a separate medium-severity bug. @mystery0x @imsrybr0 are there any duplicates?
@@ -6532,15 +6590,15 @@ As far as I can tell, I couldn't find a similar report. Maybe I'm missing someth
 
 @WangSecurity 
 
-#127 might be a duplicate of this issue. Apart from that no other possible duplicates as far as I can tell.
+\#127 might be a duplicate of this issue. Apart from that no other possible duplicates as far as I can tell.
 
 **imsrybr0**
 
-Hi @mystery0x, #127 is a duplicate of #74.
+Hi @mystery0x, \#127 is a duplicate of \#74.
 
 **WangSecurity**
 
-As I understand, the problem with both reports is that the untrimmed amount is used, when the trimmed amount is sent. It may seem similar but these are not duplicates based on the code implementation and how and where the issue happens. In that case, I agree that #127 is a duplicate of #74, not the duplicate of this issue.
+As I understand, the problem with both reports is that the untrimmed amount is used, when the trimmed amount is sent. It may seem similar but these are not duplicates based on the code implementation and how and where the issue happens. In that case, I agree that \#127 is a duplicate of \#74, not the duplicate of this issue.
 
 **WangSecurity**
 
@@ -6553,7 +6611,7 @@ Unique
 Escalations have been resolved successfully!
 
 Escalation status:
-- [imsrybr0](https://github.com/sherlock-audit/2024-06-allora-judging/issues/129/#issuecomment-2277715658): accepted
+- [imsrybr0](https://github.com/sherlock-audit/2024-06-allora-judging/issues/129/\#issuecomment-2277715658): accepted
 
 # Issue M-34: Lack of error handling when making blockless api call 
 
